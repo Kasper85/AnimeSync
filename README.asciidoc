@@ -1,0 +1,96 @@
+= Anime Downloader
+:toc:
+:numbered:
+:icons: font
+:linkattrs:
+:imagesdir: ./assets
+ifdef::env-github[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
+---
+
+🚀 Un downloader potente, rápido y modular de series de anime escrito en Python. Funciona bajo una **Arquitectura Modular v2.0**, extrayendo enlaces de episodios y gestionando las descargas masivas de manera completamente asíncrona.
+
+=== Características Principales
+
+*   **Descarga Masiva y Concurrente:** Utiliza `aiohttp` y `asyncio` para descargar sumas importantes de episodios de forma simultánea, maximizando el uso del ancho de banda y reduciendo el tiempo total de descarga.
+*   **Rutas y Proveedores Extensibles:** Implementa un sistema de _Providers_ que facilita la integración modular de nuevos sitios web de anime (Ej. `jkanime`, `katanime`, `latanime`).
+*   **Desbloqueo e Interacción en el Navegador:** Se apoya en la integración con `playwright` para gestionar barreras anti-bot o páginas dinámicas (con JavaScript) interceptando la red y saltando los cortafuegos cuando se requiere raspar enlaces fuertemente protegidos.
+*   **Soporte Específico de Hosts Externos:** Cuenta con resolvers para alojamiento como Mediafire y Mega (`mediafire_resolver.py` y `mega_downloader.py`) capaces de saltar publicidades y capturar los links de descarga directos del archivo MP4.
+*   **Gestión Avanzada de Errores y Anti-Ban:** Cuenta con límites de concurrencia y semáforos (por ejemplo, para evitar ser baneado en Katanime) e incluye reintentos automáticos para descargas fallidas.
+
+---
+
+=== Estructura del Proyecto
+
+[source,text]
+----
+anime downloader/
+├── main.py                     # CLI interactivo, punto de entrada y gestor del pool de workers asíncronos.
+├── config.py                   # Setup de variables globales y Logs de sistema.
+├── requirements.txt            # Dependencias del proyecto de Python.
+├── core/                       # Motores y lógicas críticas de la app.
+│   ├── engine.py               # Orquestador del raspado + delegado de descargas.
+│   ├── downloader.py           # Cliente asíncrono para volcado físico de bits desde las nubes (MP4).
+│   ├── browser_manager.py      # Ciclo de vida y personalización de instancias de Playwright.
+│   ├── mediafire_resolver.py   # Bypass y captura del enlace directo en mediafire.
+│   └── mega_downloader.py      # Integración oficial y fallback para enlaces de descargas en Mega.nz.
+├── providers/                  # Parseos específicos de cada página de anime.
+│   ├── base.py                 # Contrato e interfaz de provider estándar a implementar.
+│   ├── jkanime.py              # Clase concreta para jkanime.net.
+│   ├── katanime.py             # Clase concreta para katanime.net (o web homónima).
+│   └── latanime.py             # Clase concreta para parseos en páginas LatAnime.
+└── utils/
+    └── network.py              # Utilidades de red, encabezados HTTP, etc.
+----
+
+---
+
+=== Requisitos
+
+*   Python `3.9` o superior.
+*   Navegador base Chromium instalado vía Playwright para sortear protecciones Web.
+
+---
+
+=== Instalación y Uso Rápido
+
+1.  **Clona o instala el repositorio localmente.**
+2.  **Instala las Dependencias:**
++
+[source,bash]
+----
+pip install -r requirements.txt
+----
+3.  **Instala los binarios de Playwright:**
++
+Es obligatorio para que la librería pueda abrir un navegador `headless` y raspar con éxito:
++
+[source,bash]
+----
+playwright install chromium
+----
+4.  **Pon en Marcha la Descarga:**
++
+[source,bash]
+----
+python main.py
+----
++
+La terminal te solicitará ingresar la URL base del anime a descargar (Ej. la que proveen sus sitios `jkanime`, `katanime`) y te preguntará el rango de capítulos que deseas extraer de manera masiva. ¡Diviértete! 🎉
+
+---
+
+=== Estadísticas Finales
+
+Al finalizar la orquestación, el motor arroja un resumen exacto incluyendo:
+
+*   El total de MegaBytes (MB) descargados.
+*   El tiempo preciso que el sistema destinó solo buscando enlaces en los sitios y acortadores.
+*   El tiempo total invertido transmitiendo los bytes de los videos a disco.
+*   Lista negra (si la hubiera) de episodios cuyo host devolvió `404 Not Found` permitiendo retomar o analizar.
