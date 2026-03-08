@@ -19,7 +19,7 @@
 
 ---
 
-Anime Downloader is a robust CLI tool designed for massive, concurrent episode downloads. Powered by an **Architecture Modular v2.0**, it safely extracts video links bypassing modern anti-bot challenges and manages downloads entirely asynchronously.
+AnimeSync is a robust CLI tool designed for massive, concurrent episode downloads. Powered by an **Architecture Modular v2.0**, it safely extracts video links bypassing modern anti-bot challenges and manages downloads entirely asynchronously.
 
 ```bash
 [INFO] Resolviendo enlaces para: jkanime.net/naruto
@@ -41,8 +41,8 @@ Anime Downloader is a robust CLI tool designed for massive, concurrent episode d
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/anime-downloader.git
-cd anime-downloader
+git clone https://github.com/yourusername/AnimeSync.git
+cd AnimeSync
 pip install -r requirements.txt
 playwright install chromium
 ```
@@ -73,7 +73,7 @@ Follow the prompts to define your target URL, starting episode, and ending episo
 # Architecture
 
 ```text
-anime downloader/
+AnimeSync/
 ├── main.py                     CLI entry point and asynchronous worker orchestrator.
 ├── config.py                   Global variables and logging setup.
 ├── core/
