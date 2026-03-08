@@ -41,7 +41,7 @@ AnimeSync is a robust CLI tool designed for massive, concurrent episode download
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/AnimeSync.git
+git clone https://github.com/Kasper85/AnimeSync.git
 cd AnimeSync
 pip install -r requirements.txt
 playwright install chromium
