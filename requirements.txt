@@ -12,4 +12,5 @@ tqdm==4.67.3
 typing_extensions>=4.10.0
 urllib3>=2.2.1
 aiofiles>=23.2.1
+mega.py>=1.0.8
 

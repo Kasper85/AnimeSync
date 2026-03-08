@@ -7,7 +7,7 @@ class LatAnimeProvider(BaseAnimeProvider):
     name = "LatAnime"
     domain = "latanime.org"
     base_url = "https://latanime.org"
-    priority_servers = ["Mediafire"]
+    priority_servers = ["Mediafire", "Mega"]
     supports_dub = True
 
     async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
@@ -20,13 +20,26 @@ class LatAnimeProvider(BaseAnimeProvider):
             urls.append(f"{self.base_url}/ver/{nombre_serie}-episodio-{ep}")
         return urls
 
-    async def extract_mediafire_link(self, page, episode_url: str) -> Optional[str]:
+    async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
         await page.goto(episode_url)
         try:
+            # Intentar con Mediafire
             selector_mediafire = 'a.direct-link[href*="mediafire.com"]'
-            await page.wait_for_selector(selector_mediafire, timeout=10000)
+            await page.wait_for_selector(selector_mediafire, timeout=5000)
             enlace = await page.locator(selector_mediafire).get_attribute('href')
-            return enlace.strip() if enlace else None
+            if enlace:
+                return {"url": enlace.strip(), "server": "mediafire"}
         except Exception as e:
-            logging.warning(f"No se encontró Mediafire en LatAnime para {episode_url}.")
-            return None
+            logging.info(f"No se encontró Mediafire en LatAnime para {episode_url}. Intentando Mega...")
+            
+        try:
+            # Fallback a Mega
+            selector_mega = 'a.direct-link[href*="mega.nz"]'
+            await page.wait_for_selector(selector_mega, timeout=5000)
+            enlace_mega = await page.locator(selector_mega).get_attribute('href')
+            if enlace_mega:
+                return {"url": enlace_mega.strip(), "server": "mega"}
+        except Exception:
+            logging.warning(f"Tampoco se encontró Mega en LatAnime para {episode_url}.")
+            
+        return None

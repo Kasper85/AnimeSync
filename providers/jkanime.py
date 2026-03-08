@@ -17,7 +17,7 @@ class JKAnimeProvider(BaseAnimeProvider):
             urls.append(urljoin(series_url, f"{ep}/"))
         return urls
 
-    async def extract_mediafire_link(self, page, episode_url: str) -> Optional[str]:
+    async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
         await page.goto(episode_url)
         
         boton_descarga = page.locator('#dwld')
@@ -46,7 +46,7 @@ class JKAnimeProvider(BaseAnimeProvider):
         # Prioridad de servidores
         for servidor_ideal in self.priority_servers:
             if servidor_ideal in opciones_descarga:
-                return opciones_descarga[servidor_ideal]
+                return {"url": opciones_descarga[servidor_ideal], "server": servidor_ideal.lower()}
 
         servidor_fallback = list(opciones_descarga.keys())[0]
-        return opciones_descarga[servidor_fallback]
+        return {"url": opciones_descarga[servidor_fallback], "server": servidor_fallback.lower()}

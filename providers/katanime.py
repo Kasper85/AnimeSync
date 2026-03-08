@@ -7,7 +7,7 @@ class KatanimeProvider(BaseAnimeProvider):
     name = "Katanime"
     domain = "katanime.net"
     base_url = "https://katanime.net"
-    priority_servers = ["Mediafire"]
+    priority_servers = ["Mediafire", "Mega"]
     supports_dub = True
 
     async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
@@ -20,7 +20,7 @@ class KatanimeProvider(BaseAnimeProvider):
             urls.append(f"{self.base_url}/capitulo/{nombre_serie}-{ep}/")
         return urls
 
-    async def extract_mediafire_link(self, page, episode_url: str) -> Optional[str]:
+    async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
         try:
             logging.info(f"[{self.name} Trace] Empezando con {episode_url}")
             
@@ -48,6 +48,8 @@ class KatanimeProvider(BaseAnimeProvider):
             # Selector hiper-estricto para evadir botones fantasma o de otros servidores como Mega
             selector_mediafire = 'a.downbtn:has-text("Mediafire")'
             
+            # Intentar encontrar Mediafire primero
+            intentar_mediafire = True
             for _ in range(3):
                 await boton_descarga.click(force=True)
                 try:
@@ -56,27 +58,53 @@ class KatanimeProvider(BaseAnimeProvider):
                 except Exception:
                     pass
             
-            await page.wait_for_selector(selector_mediafire, timeout=5000)
-            enlace_espera = await page.locator(selector_mediafire).first.get_attribute('href')
-            
-            if not enlace_espera:
-                return None
-                
-            logging.info(f"[{self.name} Trace] Navegando a página de espera...")
-            await page.goto(enlace_espera)
-            
-            selector_linkbutton = '#linkButton'
+            enlace_espera = None
             try:
-                # Tolerancia radical a la carga de Cloudflare del modal 
-                await page.wait_for_selector(selector_linkbutton, state="attached", timeout=45000)
-                await page.wait_for_function('document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mediafire.com")', timeout=45000)
-            except Exception as wait_e:
-                logging.warning(f"Timeout esperando #linkButton para Mediafire en Katanime.")
-                return None
+                await page.wait_for_selector(selector_mediafire, timeout=5000)
+                enlace_espera = await page.locator(selector_mediafire).first.get_attribute('href')
+            except Exception:
+                intentar_mediafire = False
+                logging.info(f"[{self.name} Trace] No se encontró Mediafire, buscando Mega...")
+                
+            if intentar_mediafire and enlace_espera:
+                logging.info(f"[{self.name} Trace] Navegando a página de espera (Mediafire)...")
+                await page.goto(enlace_espera)
+                
+                selector_linkbutton = '#linkButton'
+                try:
+                    # Tolerancia radical a la carga de Cloudflare del modal 
+                    await page.wait_for_selector(selector_linkbutton, state="attached", timeout=45000)
+                    await page.wait_for_function('document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mediafire.com")', timeout=45000)
+                except Exception as wait_e:
+                    logging.warning(f"Timeout esperando #linkButton para Mediafire en Katanime.")
+                    return None
+                
+                enlace_mediafire = await page.locator(selector_linkbutton).get_attribute('href')
+                if enlace_mediafire:
+                    return {"url": enlace_mediafire.strip(), "server": "mediafire"}
             
-            enlace_mediafire = await page.locator(selector_linkbutton).get_attribute('href')
-            return enlace_mediafire.strip() if enlace_mediafire else None
-            
+            # --- Plan B: MEGA ---
+            selector_mega = 'a.downbtn:has-text("Mega")'
+            try:
+                await page.wait_for_selector(selector_mega, timeout=5000)
+                enlace_mega_espera = await page.locator(selector_mega).first.get_attribute('href')
+                
+                if enlace_mega_espera:
+                    logging.info(f"[{self.name} Trace] Navegando a página de espera (Mega)...")
+                    await page.goto(enlace_mega_espera)
+                    
+                    selector_linkbutton_mega = '#linkButton'
+                    await page.wait_for_selector(selector_linkbutton_mega, state="attached", timeout=45000)
+                    await page.wait_for_function('document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mega.nz")', timeout=45000)
+                    
+                    enlace_final_mega = await page.locator(selector_linkbutton_mega).get_attribute('href')
+                    if enlace_final_mega:
+                         return {"url": enlace_final_mega.strip(), "server": "mega"}
+            except Exception as e:
+                logging.warning(f"Timeout o error esperando botón de Mega en Katanime.")
+                
+            return None
+
         except Exception as e:
             logging.warning(f"Error procesando katanime.net para {episode_url}: {e}")
             return None

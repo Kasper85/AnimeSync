@@ -4,6 +4,7 @@ import time
 import logging
 from tenacity import retry, stop_after_attempt, wait_fixed
 from .mediafire_resolver import obtener_link_mp4_mediafire
+from .mega_downloader import descargar_video_mega
 from .downloader import descargar_video
 from providers.base import BaseAnimeProvider
 
@@ -30,35 +31,59 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
             @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
             async def intentar_obtener_links():
                 # INYECCION DE DEPENDENCIA: el provider específico hace su magia
-                _enlace_intermedio = await provider.extract_mediafire_link(page, url_episodio)
-                if not _enlace_intermedio:
+                datos_enlace = await provider.obtener_enlace_video(page, url_episodio)
+                if not datos_enlace:
                      return None
-                _link_mp4 = await obtener_link_mp4_mediafire(_enlace_intermedio, session)
-                if not _link_mp4:
-                     return None
-                return _link_mp4
+                     
+                server = datos_enlace.get("server", "")
+                url = datos_enlace.get("url", "")
+                
+                if server == "mediafire":
+                    _link_mp4 = await obtener_link_mp4_mediafire(url, session)
+                    if not _link_mp4:
+                         return None
+                    return {"tipo": "http", "url": _link_mp4}
+                elif server == "mega":
+                    # Mega devuelve un enlace público para descargar, no mp4 crudo
+                    return {"tipo": "mega", "url": url}
+                
+                return None
 
             print(f"Buscando enlace para Cap {ep}...")
             t0_enlace = time.time()
-            link_mp4 = await intentar_obtener_links()
+            datos_descarga = await intentar_obtener_links()
             
             if not page.is_closed():
                  await page.close()
                  
-            if not link_mp4:
+            if not datos_descarga:
                  return False, 0, 0, 0
                  
             tiempo_enlace = time.time() - t0_enlace
 
         # === Fuera del semáforo: la descarga pesada ===
-        print(f"📥 Iniciando descarga: {nombre_archivo}...")
+        print(f"📥 Iniciando descarga ({datos_descarga['tipo']}): {nombre_archivo}...")
         t0_descarga = time.time()
+        exito = False
+        bytes_descargados = 0
         
-        @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
-        async def intentar_descarga():
-           return await descargar_video(link_mp4, serie, nombre_archivo, session)
-           
-        exito, bytes_descargados = await intentar_descarga()
+        if datos_descarga["tipo"] == "http":
+            @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
+            async def intentar_descarga_http():
+               return await descargar_video(datos_descarga["url"], serie, nombre_archivo, session)
+            exito, bytes_descargados = await intentar_descarga_http()
+            
+        elif datos_descarga["tipo"] == "mega":
+            @retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
+            async def intentar_descarga_mega():
+               # Ejecutamos la función asíncrona en un hilo aparte para no bloquear el loop global
+               res = await asyncio.to_thread(
+                   descargar_video_mega, datos_descarga["url"], serie, nombre_archivo, destino
+               )
+               return res, 0 # mega.py maneja su propia descarga, no controlamos bytes aquí
+            
+            exito, bytes_descargados = await intentar_descarga_mega()
+            
         tiempo_descarga = time.time() - t0_descarga
         
         await context.close()
