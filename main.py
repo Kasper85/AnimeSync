@@ -36,29 +36,42 @@ async def run_scraper():
         
     print(f"✅ Sitio detectado y soportado por provider: {provider.name}")
     
-    modo = input("¿Deseas descargar toda la serie desde el cap 1? (s/n): ").strip().lower()
-    if modo == 'n':
-        ep_inicio = int(input("Ingresa el episodio INICIAL (ej. 10): "))
-        ep_fin = int(input("Ingresa el episodio FINAL (ej. 24): "))
+    import re
+    
+    # Delegamos al provider para saber si pegaron un episodio aislado
+    info_episodio = provider.extract_episode_info(url_base)
+    
+    if info_episodio:
+        print(f"\n📌 Has ingresado la URL de UN SOLO episodio (Cap {info_episodio['ep_num']}). Se descargará individualmente.")
+        ep_inicio = info_episodio['ep_num']
+        ep_fin = ep_inicio
+        urls_episodios = [url_base]
+        nombre_serie = info_episodio.get('serie', 'descarga_suelta')
+        
     else:
-        ep_inicio = 1
-        ep_fin = 9999 
+        modo = input("¿Deseas descargar toda la serie desde el cap 1? (s/n): ").strip().lower()
+        if modo == 'n':
+            ep_inicio = int(input("Ingresa el episodio INICIAL (ej. 10): "))
+            ep_fin = int(input("Ingresa el episodio FINAL (ej. 24): "))
+        else:
+            ep_inicio = 1
+            ep_fin = 9999 
+            
+        print("\n[INFO] Determinando lista de episodios...")
+        try:
+            urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin)
+            print(f"[PREPARE] URLs obtenidas: {urls_episodios}")
+        except Exception as e:
+            logging.error(f"Fallo al construir URLs para la serie: {e}")
+            return
+            
+        if not urls_episodios:
+            logging.error("La lista de episodios está vacía.")
+            return
         
-    print("\n[INFO] Determinando lista de episodios...")
-    # Delegamos al provider cómo generar o raspar las URLs válidas para esta serie
-    try:
-        urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin)
-        print(f"[PREPARE] URLs obtenidas: {urls_episodios}")
-    except Exception as e:
-        logging.error(f"Fallo al construir URLs para la serie: {e}")
-        return
+        # Obtener un nombre de serie base para las carpetas
+        nombre_serie = [p for p in url_base.rstrip('/').split('/') if p][-1]
         
-    if not urls_episodios:
-        logging.error("La lista de episodios está vacía.")
-        return
-        
-    # Obtener un nombre de serie base para las carpetas 
-    nombre_serie = [p for p in url_base.rstrip('/').split('/') if p][-1]
     ruta_destino = os.path.join(os.getcwd(), nombre_serie)
     os.makedirs(ruta_destino, exist_ok=True)
     

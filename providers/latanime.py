@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Optional
 from urllib.parse import urljoin
 from .base import BaseAnimeProvider
@@ -9,6 +10,14 @@ class LatAnimeProvider(BaseAnimeProvider):
     base_url = "https://latanime.org"
     priority_servers = ["Mediafire", "Mega"]
     supports_dub = True
+
+    @classmethod
+    def extract_episode_info(cls, url: str) -> Optional[dict]:
+        """Detecta si la URL es un episodio de LatAnime: https://latanime.org/ver/baki-dou-el-samurai-invencible-episodio-1"""
+        match = re.search(r'/ver/([\w-]+)-episodio-(\d+)', url)
+        if match:
+            return {"ep_num": int(match.group(2)), "serie": match.group(1)}
+        return None
 
     async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
         # Formato: https://latanime.org/ver/baki-dou-el-samurai-invencible-episodio-1

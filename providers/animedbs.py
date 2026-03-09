@@ -10,7 +10,18 @@ class AnimeDbsProvider(BaseAnimeProvider):
     domain = "animedbs.online"
     base_url = "https://www.animedbs.online"
     priority_servers = ["UpnShare", "Mediafire", "Mega", "voe", "PixelDrain"]
+    priority_servers = ["UpnShare", "Mediafire", "Mega", "voe", "PixelDrain"]
     supports_dub = True
+
+    @classmethod
+    def extract_episode_info(cls, url: str) -> Optional[dict]:
+        """Detecta si la URL es un episodio de AnimeDbs: https://www.animedbs.online/boku-no-hero-...-episodio-10-latino/"""
+        # Debe contener la palabra episodio y el dominio
+        if "episodio-" in url:
+            match = re.search(r'([\w-]+)-episodio-(\d+)', url)
+            if match:
+                 return {"ep_num": int(match.group(2)), "serie": match.group(1)}
+        return None
 
     async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
         urls = []

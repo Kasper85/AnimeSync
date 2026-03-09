@@ -1,4 +1,5 @@
 from typing import List, Optional
+import re
 from urllib.parse import urljoin
 from .base import BaseAnimeProvider
 
@@ -8,6 +9,15 @@ class JKAnimeProvider(BaseAnimeProvider):
     base_url = "https://jkanime.net"
     priority_servers = ["Mediafire", "Mega", "Streamwish", "VOE", "Mp4upload", "Vidhide"]
     supports_dub = True
+
+    @classmethod
+    def extract_episode_info(cls, url: str) -> Optional[dict]:
+        """Detecta si la URL es un episodio de JKAnime: https://jkanime.net/naruto/1/"""
+        # Ignorar si es la URL principal de la serie sin número al final
+        match = re.search(r'jkanime\.net/([\w-]+)/(\d+)/?$', url)
+        if match:
+             return {"ep_num": int(match.group(2)), "serie": match.group(1)}
+        return None
 
     async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
         if not series_url.endswith('/'):

@@ -28,3 +28,11 @@ class BaseAnimeProvider(ABC):
     def is_supported(cls, url: str) -> bool:
         """Verifica si este provider puede manejar la URL origen dada."""
         return cls.domain in url
+
+    @classmethod
+    def extract_episode_info(cls, url: str) -> Optional[dict]:
+        """
+        Analiza la URL y determina si corresponde a un episodio individual en vez de la serie completa.
+        Debe devolver un diccionario con {'ep_num': int, ...} si es un episodio, o None si es una serie completa.
+        """
+        return None
