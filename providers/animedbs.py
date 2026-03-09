@@ -72,33 +72,34 @@ class AnimeDbsProvider(BaseAnimeProvider):
         try:
             logging.info(f"[{self.name} Trace] Navegando a {episode_url}")
             
-            # AnimeDbs puede tener protección básica, intentamos no bloquear demasiadas cosas
-            # await page.route("**/*", lambda route: route.continue_())
-            await page.goto(episode_url, timeout=30000)
+            await page.goto(episode_url, timeout=30000, wait_until="domcontentloaded")
+            # Esperar a que la red esté quieta (necesario para que AnimeDbs cargue los botones via JS)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass  # Si la página sigue activa, intentamos igual
             
             # Buscar el contenedor con los botones de servidor
             selector_servidores = 'div.soraurlx'
             try:
-                 await page.wait_for_selector(selector_servidores, timeout=10000)
+                await page.wait_for_selector(selector_servidores, timeout=20000)
             except Exception as wait_e:
-                 logging.info(f"[{self.name} Trace] No se encontró el recuadro de servidores: {wait_e}")
-                 print(f"[{self.name} Trace] No se encontró el recuadro de servidores: {wait_e}")
-                 return None
-                 
+                logging.warning(f"[{self.name} Trace] No se encontró el recuadro de servidores: {wait_e}")
+                return None
+                
             # Extraer todos los enlaces dentro del div
             enlaces_tag = await page.locator(f'{selector_servidores} a').all()
             opciones_descarga = {}
             
             for a_tag in enlaces_tag:
-                 texto = await a_tag.inner_text()
-                 href = await a_tag.get_attribute('href')
-                 if texto and href:
-                     opciones_descarga[texto.strip()] = href.strip()
-                     
+                texto = await a_tag.inner_text()
+                href = await a_tag.get_attribute('href')
+                if texto and href:
+                    opciones_descarga[texto.strip()] = href.strip()
+                    
             if not opciones_descarga:
-                 logging.info(f"[{self.name} Trace] Div soraurlx vacío de enlaces.")
-                 print(f"[{self.name} Trace] Div soraurlx vacío de enlaces.")
-                 return None
+                logging.warning(f"[{self.name} Trace] Div soraurlx vacío de enlaces.")
+                return None
                  
             # Priorizar servidores según config
             for servidor_ideal in self.priority_servers:
@@ -121,10 +122,10 @@ class AnimeDbsProvider(BaseAnimeProvider):
             url_primer = opciones_descarga[primer_servidor]
             logging.info(f"[{self.name} Trace] Fallback servidor: {primer_servidor}")
             
-            if "upnshare" in primer_servidor.lower(): 
-                 return {"url": url_primer, "server": "upnshare"}
+            if "upnshare" in primer_servidor.lower():
+                return {"url": url_primer, "server": "upnshare"}
             elif "mediafire" in primer_servidor.lower():
-                 return {"url": url_primer, "server": "mediafire"}
+                return {"url": url_primer, "server": "mediafire"}
                  
             return {"url": url_primer, "server": primer_servidor.lower()}
 
