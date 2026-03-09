@@ -1,12 +1,31 @@
 import platform
 import os
 import logging
+import random
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from utils.network import resolver_ip_dominio
 
 # Instancia global de Stealth (se reutiliza para todos los contextos)
 _stealth = Stealth()
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
+]
+
+HEADERS = {
+    "Accept-Language": "es-PE,es;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Referer": "https://www.google.com/",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-User": "?1",
+    "Sec-Fetch-Dest": "document",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 def obtener_ruta_navegador() -> str:
     sistema = platform.system()
@@ -42,10 +61,11 @@ async def crear_navegador(playwright_context, dominio_ip: str):
 
 async def crear_pagina_stealth(browser) -> tuple:
     """
-    Crea un nuevo contexto y página de Playwright con Stealth aplicado.
+    Crea un nuevo contexto y página de Playwright con Stealth, User-Agent real y Headers aplicado.
     Devuelve (context, page) para que el caller pueda cerrarlos correctamente.
     """
-    context = await browser.new_context()
+    ua = random.choice(USER_AGENTS)
+    context = await browser.new_context(user_agent=ua, extra_http_headers=HEADERS)
     page = await context.new_page()
     await _stealth.apply_stealth_async(page)
     return context, page

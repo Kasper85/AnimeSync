@@ -2,7 +2,7 @@ import os
 import asyncio
 import time
 import logging
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed, wait_exponential
 from .mediafire_resolver import obtener_link_mp4_mediafire
 from .mega_downloader import descargar_video_mega
 from .upnshare_resolver import obtener_link_mp4_upnshare
@@ -31,30 +31,43 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
             async def cerrar_popup(popup): await popup.close()
             page.on('popup', cerrar_popup)
 
-            @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+            @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=5))
             async def intentar_obtener_links():
-                # INYECCION DE DEPENDENCIA: el provider específico hace su magia
-                datos_enlace = await provider.obtener_enlace_video(page, url_episodio)
-                if not datos_enlace:
+                try:
+                    # INYECCION DE DEPENDENCIA: el provider específico hace su magia
+                    datos_enlace = await provider.obtener_enlace_video(page, url_episodio)
+                    if not datos_enlace:
+                        return None
+    
+                    server = datos_enlace.get("server", "")
+                    url = datos_enlace.get("url", "")
+    
+                    if server == "mediafire":
+                        _link_mp4 = await obtener_link_mp4_mediafire(url, session)
+                        if not _link_mp4:
+                            return None
+                        return {"tipo": "http", "url": _link_mp4}
+                    elif server == "mega":
+                        return {"tipo": "mega", "url": url}
+                    elif server == "upnshare":
+                        _link_mp4 = await obtener_link_mp4_upnshare(page, url)
+                        if not _link_mp4:
+                            return None
+                        return {"tipo": "http", "url": _link_mp4, "headers": UPNSHARE_HEADERS}
+    
                     return None
-
-                server = datos_enlace.get("server", "")
-                url = datos_enlace.get("url", "")
-
-                if server == "mediafire":
-                    _link_mp4 = await obtener_link_mp4_mediafire(url, session)
-                    if not _link_mp4:
-                        return None
-                    return {"tipo": "http", "url": _link_mp4}
-                elif server == "mega":
-                    return {"tipo": "mega", "url": url}
-                elif server == "upnshare":
-                    _link_mp4 = await obtener_link_mp4_upnshare(page, url)
-                    if not _link_mp4:
-                        return None
-                    return {"tipo": "http", "url": _link_mp4, "headers": UPNSHARE_HEADERS}
-
-                return None
+                except Exception as ex:
+                    logging.error(f"[Engine] Fallo subyacente al obtener enlaces para Cap {ep}: {ex}")
+                    try:
+                        content_preview = (await page.content())[:1000]
+                        logging.debug(f"[Engine] Preview de la pagina: {content_preview}")
+                        timestamp = int(time.time())
+                        screenshot_path = os.path.join(os.getcwd(), f"error_{provider.name}_{serie}_cap{ep}_{timestamp}.png")
+                        await page.screenshot(path=screenshot_path)
+                        logging.error(f"[Engine] Screenshot guardado en: {screenshot_path}")
+                    except Exception as e_ss:
+                        logging.error(f"[Engine] No se pudo guardar screenshot: {e_ss}")
+                    raise ex
 
             logging.info(f"Buscando enlace para Cap {ep}...")
             t0_enlace = time.time()

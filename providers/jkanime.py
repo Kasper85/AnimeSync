@@ -28,29 +28,35 @@ class JKAnimeProvider(BaseAnimeProvider):
         return urls
 
     async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
+        import logging
         await page.goto(episode_url)
         
-        boton_descarga = page.locator('#dwld')
-        await boton_descarga.wait_for(state="visible")
-        await boton_descarga.click()
-        
         try:
-            await page.wait_for_selector('table tbody tr', timeout=4000)
-        except Exception:
-            await boton_descarga.click(force=True)
-            await page.wait_for_selector('table tbody tr', timeout=10000)
-        
-        filas = await page.locator('table tbody tr:not(:first-child)').all()
-        opciones_descarga = {}
-        
-        for fila in filas:
-            celdas = await fila.locator('td').all()
-            if len(celdas) >= 4:
-                servidor = await celdas[0].inner_text()
-                enlace = await celdas[3].locator('a').get_attribute('href')
-                opciones_descarga[servidor.strip()] = enlace
-                
-        if not opciones_descarga:
+            boton_descarga = page.locator('#dwld')
+            await boton_descarga.wait_for(state="visible", timeout=15000)
+            await boton_descarga.click()
+            
+            try:
+                await page.wait_for_selector('table tbody tr', timeout=4000)
+            except Exception:
+                await boton_descarga.click(force=True)
+                await page.wait_for_selector('table tbody tr', timeout=10000)
+            
+            filas = await page.locator('table tbody tr:not(:first-child)').all()
+            opciones_descarga = {}
+            
+            for fila in filas:
+                celdas = await fila.locator('td').all()
+                if len(celdas) >= 4:
+                    servidor = await celdas[0].inner_text()
+                    enlace = await celdas[3].locator('a').get_attribute('href')
+                    opciones_descarga[servidor.strip()] = enlace
+                    
+            if not opciones_descarga:
+                return None
+
+        except Exception as e:
+            logging.error(f"[{self.name}] Falló al buscar opciones de descarga: {e} - posible login requerido o cambio estructural")
             return None
 
         # Prioridad de servidores

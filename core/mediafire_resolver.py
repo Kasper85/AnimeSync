@@ -6,7 +6,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 async def obtener_link_mp4_mediafire(url_intermedia, session):
     """Extrae el .mp4 asíncronamente vía Aiohttp y Regex sin usar recursos de navegador gráfico."""
     try:
-        if not url_intermedia or "mediafire.com" not in url_intermedia:
+        if not url_intermedia:
             return None
             
         async with session.get(url_intermedia, allow_redirects=True, timeout=15) as respuesta:

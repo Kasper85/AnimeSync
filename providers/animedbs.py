@@ -84,8 +84,25 @@ class AnimeDbsProvider(BaseAnimeProvider):
             try:
                 await page.wait_for_selector(selector_servidores, timeout=20000)
             except Exception as wait_e:
-                logging.warning(f"[{self.name} Trace] No se encontró el recuadro de servidores: {wait_e}")
+                logging.warning(f"[{self.name} Trace] No se encontró el recuadro de servidores: {wait_e}. Intentando fallback enlaces directos.")
+                direct_selectors = [
+                    'a[href*="voe.sx"]',
+                    'a[href*="gofile.io"]',
+                    'a[href*="upns.live"]',
+                    'a[href*="pixeldrain"]',
+                    'a[href*="streamtape"]',
+                ]
+                for sel in direct_selectors:
+                    links = await page.locator(sel).all()
+                    if links:
+                        for link_loc in links:
+                            best_link = await link_loc.get_attribute('href')
+                            if best_link:
+                                logging.info(f"[{self.name} Trace] Enlace directo encontrado: {best_link}")
+                                server_name = "voe" if "voe.sx" in best_link else "gofile" if "gofile.io" in best_link else "upnshare" if "upns.live" in best_link else "pixeldrain" if "pixeldrain" in best_link else "streamtape"
+                                return {"url": best_link, "server": server_name}
                 return None
+                
                 
             # Extraer todos los enlaces dentro del div
             enlaces_tag = await page.locator(f'{selector_servidores} a').all()
