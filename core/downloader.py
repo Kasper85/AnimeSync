@@ -4,13 +4,13 @@ import asyncio
 import logging
 import aiofiles
 
-async def descargar_video(url_directa, nombre_carpeta, nombre_archivo, session, id_hilo=0):
+async def descargar_video(url_directa, nombre_carpeta, nombre_archivo, session, id_hilo=0, headers_extra=None):
     ruta_actual = os.getcwd()
     ruta_destino = os.path.join(ruta_actual, nombre_carpeta)
     os.makedirs(ruta_destino, exist_ok=True)
     ruta_completa = os.path.join(ruta_destino, nombre_archivo)
     
-    headers = {}
+    headers = headers_extra.copy() if headers_extra else {}
     modo_apertura = 'wb'
     tamanio_existente = 0
 

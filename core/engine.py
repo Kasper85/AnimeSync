@@ -5,6 +5,7 @@ import logging
 from tenacity import retry, stop_after_attempt, wait_fixed
 from .mediafire_resolver import obtener_link_mp4_mediafire
 from .mega_downloader import descargar_video_mega
+from .upnshare_resolver import obtener_link_mp4_upnshare
 from .downloader import descargar_video
 from providers.base import BaseAnimeProvider
 
@@ -16,7 +17,7 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
     if os.path.exists(ruta_completa):
         peso_mb = os.path.getsize(ruta_completa) / (1024 * 1024)
         if peso_mb > 50.0:
-            logging.info(f"⏭️  [Cap {ep}] Ya existe ({peso_mb:.1f} MB).")
+            logging.info(f"[SKIP] [Cap {ep}] Ya existe ({peso_mb:.1f} MB).")
             return True, 0, 0, 0
             
     try:
@@ -24,6 +25,11 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         async with sem:
             context = await browser.new_context()
             page = await context.new_page()
+            
+            # Aplicar stealth para evadir detección de Headless
+            from playwright_stealth import Stealth
+            stealth = Stealth()
+            await stealth.apply_stealth_async(page)
             
             async def cerrar_popup(popup): await popup.close()
             page.on('popup', cerrar_popup)
@@ -46,6 +52,18 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                 elif server == "mega":
                     # Mega devuelve un enlace público para descargar, no mp4 crudo
                     return {"tipo": "mega", "url": url}
+                elif server == "upnshare":
+                    _link_mp4 = await obtener_link_mp4_upnshare(page, url)
+                    if not _link_mp4:
+                        return None
+                    return {
+                        "tipo": "http", 
+                        "url": _link_mp4,
+                        "headers": {
+                            "Referer": "https://animetv.upns.live/",
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        }
+                    }
                 
                 return None
 
@@ -62,7 +80,7 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
             tiempo_enlace = time.time() - t0_enlace
 
         # === Fuera del semáforo: la descarga pesada ===
-        print(f"📥 Iniciando descarga ({datos_descarga['tipo']}): {nombre_archivo}...")
+        print(f"[DOWNLOADING] Iniciando descarga ({datos_descarga['tipo']}): {nombre_archivo}...")
         t0_descarga = time.time()
         exito = False
         bytes_descargados = 0
@@ -70,7 +88,13 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         if datos_descarga["tipo"] == "http":
             @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
             async def intentar_descarga_http():
-               return await descargar_video(datos_descarga["url"], serie, nombre_archivo, session)
+               return await descargar_video(
+                   datos_descarga["url"], 
+                   serie, 
+                   nombre_archivo, 
+                   session,
+                   headers_extra=datos_descarga.get("headers")
+               )
             exito, bytes_descargados = await intentar_descarga_http()
             
         elif datos_descarga["tipo"] == "mega":
@@ -89,7 +113,7 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         await context.close()
         
         if exito:
-            print(f"✅ ¡LISTO! {nombre_archivo} descargado.")
+            print(f"[OK] ¡LISTO! {nombre_archivo} descargado.")
             
         return exito, tiempo_enlace, tiempo_descarga, bytes_descargados
 

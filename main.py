@@ -1,9 +1,13 @@
 import os
+import sys
 import asyncio
 import time
 import logging
 import aiohttp
 from playwright.async_api import async_playwright
+
+if sys.platform == 'win32' and sys.stdout and getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 from config import setup_logging
 from providers import get_provider_for_url
@@ -44,6 +48,7 @@ async def run_scraper():
     # Delegamos al provider cómo generar o raspar las URLs válidas para esta serie
     try:
         urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin)
+        print(f"[PREPARE] URLs obtenidas: {urls_episodios}")
     except Exception as e:
         logging.error(f"Fallo al construir URLs para la serie: {e}")
         return
@@ -60,6 +65,7 @@ async def run_scraper():
     # Empaquetamos en formato Tarea
     tareas_iniciales = []
     for i, url in enumerate(urls_episodios, start=ep_inicio):
+        print(f"[PREPARE] Añadiendo tarea Ep {i}: {url}")
         tareas_iniciales.append({
             "url": url,
             "ep": str(i),
@@ -68,6 +74,8 @@ async def run_scraper():
             "provider": provider,
             "fin_dinamico": ep_fin == 9999
         })
+        
+    print(f"[PREPARE] Total tareas iniciales: {len(tareas_iniciales)}")
         
     async with async_playwright() as p:
         # Browser inyectando reglas de bypass de DNS para el dominio del provider
@@ -93,11 +101,14 @@ async def run_scraper():
             async def worker(worker_id):
                 while True:
                     tarea = await cola_tareas.get()
+                    print(f"[{worker_id}] Tarea obtenida: {tarea['ep']} - URL: {tarea['url']}")
                     try:
                         # Aborte ultra-rápido en O(1) si la serie topó pared 404
                         if tarea['serie'] in estado["series_canceladas"]:
+                            print(f"[{worker_id}] Serie cancelada, saltando: {tarea['serie']}")
                             continue
                             
+                        print(f"[{worker_id}] Iniciando descarga: CAPÍTULO {tarea['ep']} ({tarea['serie']}) - {tarea['url']}")
                         logging.info(f"\n▶ --- INICIANDO DESCARGA: CAPÍTULO {tarea['ep']} ({tarea['serie']}) ---")
                         
                         resultado, t_enlaces, t_descarga, b_descargados = await procesar_episodio(
