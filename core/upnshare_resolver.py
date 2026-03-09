@@ -8,7 +8,6 @@ async def obtener_link_mp4_upnshare(page, url_intermedia: str) -> Optional[str]:
     para resolver y extraer el enlace final .mp4.
     """
     try:
-        print(f"[UpnShare Resolver] Navegando a {url_intermedia}")
         logging.info(f"[UpnShare Resolver] Navegando a {url_intermedia}")
         await page.goto(url_intermedia)
         
@@ -25,54 +24,39 @@ async def obtener_link_mp4_upnshare(page, url_intermedia: str) -> Optional[str]:
             
             await btn_get_video.scroll_into_view_if_needed()
             await btn_get_video.click(force=True)
-            print("[UpnShare Resolver] Clic en 'Get Video'. Esperando generación de enlace...")
             logging.info("[UpnShare Resolver] Clic en 'Get Video'. Esperando generación de enlace...")
         except Exception as e:
-            print(f"[UpnShare Resolver] No se encontró o falló clic en 'Get Video': {e}")
             logging.warning(f"[UpnShare Resolver] No se encontró o falló clic en 'Get Video': {e}")
             return None
 
         # 2. Esperar a que aparezca el contenedor de botones finales
         container_botones = page.locator('#downloader-button-container')
         try:
-            # First, check if "Headless Detected" is present and wait for the real button
             await page.wait_for_function('''() => {
                 const btn = document.querySelector('a.downloader-button[download]');
                 const hd = document.querySelector('button.downloader-button');
                 return btn !== null || (hd && hd.innerText.includes('Headless Detected'));
             }''', timeout=25000)
             
-            # If headless detected but we also have the Watch Online link, let's see if we can extract from the page source or API.
-            # Upnshare simply builds the link from the #hash.
-            # url: https://animetv.upns.live/#huvp9l&dl=1
-            # video url structure: https://185.237.107.38/.../720p.mp4
-            # We must use playwright-stealth if possible, but for now let's hope stealth works.
-            # Actually, this requires browser_manager to use a bypass. Wait, the browser is managed by the main engine.
-            
             await container_botones.wait_for(state="attached", timeout=25000)
-            # Damos un pequeño respiro para que el DOM se asiente
             await asyncio.sleep(1)
         except Exception as e:
-            print(f"[UpnShare Resolver] No apareció el contenedor final: {e}")
             logging.warning(f"[UpnShare Resolver] No apareció el contenedor final: {e}")
             return None
 
-        # 3. Extraer el enlace del botón "Download" (el que tiene href acabado en .mp4 /download)
+        # 3. Extraer el enlace del botón "Download"
         btn_download = container_botones.locator('a.downloader-button:has-text("Download")')
         try:
             await btn_download.wait_for(state="attached", timeout=5000)
             enlace_mp4 = await btn_download.get_attribute('href')
             
             if enlace_mp4:
-                print(f"[UpnShare Resolver] ¡Éxito! Enlace MP4 extraído: {enlace_mp4}")
-                logging.info(f"[UpnShare Resolver] ¡Éxito! Enlace MP4 extraído.")
+                logging.info(f"[UpnShare Resolver] Éxito! Enlace MP4 extraído: {enlace_mp4}")
                 return enlace_mp4.strip()
             else:
-                print("[UpnShare Resolver] El botón 'Download' no tenía atributo href.")
                 logging.warning("[UpnShare Resolver] El botón 'Download' no tenía atributo href.")
                 return None
         except Exception as e:
-            print(f"[UpnShare Resolver] No se pudo extraer el enlace del botón 'Download': {e}")
             logging.warning(f"[UpnShare Resolver] No se pudo extraer el enlace del botón 'Download': {e}")
             return None
 

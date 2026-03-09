@@ -23,52 +23,49 @@ class AnimeDbsProvider(BaseAnimeProvider):
                  return {"ep_num": int(match.group(2)), "serie": match.group(1)}
         return None
 
-    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
+    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999, session=None) -> List[str]:
         urls = []
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(series_url) as resp:
+            # Reutilizar la sesión existente si se provee (evita crear dos sesiones HTTP)
+            async def _do_fetch(s):
+                async with s.get(series_url) as resp:
                     if resp.status != 200:
                         logging.error(f"Error {resp.status} al acceder a la serie AnimeDbs.")
-                        return urls
-                    
+                        return
                     html = await resp.text()
                     soup = BeautifulSoup(html, 'html.parser')
-                    
-                    # Usualmente AnimeDbs lista los episodios en una lista o grid
-                    # Típicamente los enlaces de episodio en animedbs terminan en -episodio-X o similar.
-                    # Vamos a buscar enlaces que parezcan episodios relacionados a esta serie.
                     episodios_encontrados = set()
-                    
                     for a_tag in soup.find_all('a', href=True):
                         href = a_tag['href']
                         if "episodio-" in href and "animedbs.online" in href:
                             episodios_encontrados.add(href)
-                            
-                    # Ordenar por el número de episodio al final
+
                     def extract_ep_num(url):
                         match = re.search(r'episodio-(\d+)', url)
                         return int(match.group(1)) if match else 0
-                        
+
                     lista_ordenada = sorted(list(episodios_encontrados), key=extract_ep_num)
-                    
                     for url in lista_ordenada:
                         num_ep = extract_ep_num(url)
                         if start_ep <= num_ep <= end_ep:
-                            # Asegurarnos de no duplicar y de seguir el orden de iteración
                             if url not in urls:
                                 urls.append(url)
-                                
-                    # Si no pudimos scrapear los links, generamos el guessing asumiendo que el slug sea deducible (Ej: boku-no-hero-temporada-2-episodio-1-latino)
+
                     if not urls:
                         logging.warning("No se encontraron enlaces scrapeando, usando guessing de URLs (puede fallar).")
-                        slug_base = series_url.rstrip('/').split('/')[-1].replace('anime-', '') # Intento rudimentario
+                        slug_base = series_url.rstrip('/').split('/')[-1].replace('anime-', '')
                         for ep in range(start_ep, end_ep + 1):
-                             urls.append(f"{self.base_url}/{slug_base}-episodio-{ep}-latino-hd/")
+                            urls.append(f"{self.base_url}/{slug_base}-episodio-{ep}-latino-hd/")
+
+            if session is not None:
+                await _do_fetch(session)
+            else:
+                async with aiohttp.ClientSession() as s:
+                    await _do_fetch(s)
 
         except Exception as e:
             logging.error(f"Error parseando lista AnimeDbs: {e}")
-            
+
         return urls
 
     async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:

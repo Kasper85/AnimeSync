@@ -4,7 +4,7 @@ from mega import Mega
 
 def descargar_video_mega(url: str, serie: str, nombre_archivo: str, destino: str) -> bool:
     """
-    Función completametne SÍNCRONA para descargar desde MEGA.
+    Función completamente SÍNCRONA para descargar desde MEGA.
     Se conecta a la URL proveída y guarda el video en la carpeta especificada.
     Al ser síncrona/bloqueante, debe llamarse desde el engine mediante asyncio.to_thread().
     """

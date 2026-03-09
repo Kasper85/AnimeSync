@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import asyncio
 import time
@@ -35,8 +36,6 @@ async def run_scraper():
         return
         
     print(f"✅ Sitio detectado y soportado por provider: {provider.name}")
-    
-    import re
     
     # Delegamos al provider para saber si pegaron un episodio aislado
     info_episodio = provider.extract_episode_info(url_base)
