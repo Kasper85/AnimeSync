@@ -1,5 +1,4 @@
 import os
-import aiohttp
 import asyncio
 import logging
 import aiofiles
@@ -29,10 +28,6 @@ async def descargar_video(url_directa, nombre_carpeta, nombre_archivo, session, 
                 modo_apertura = 'wb'
                 tamanio_existente = 0
 
-            # contentLength a veces puede no estar, asumimos 0 si falta para evitar errores
-            peso_descargado = int(respuesta.headers.get('content-length', 0))
-            peso_total = peso_descargado + tamanio_existente
-            
             # NUEVO: Implementación de I/O Asíncrono no-bloqueante para no atascar a los workers
             async with aiofiles.open(ruta_completa, modo_apertura) as archivo:
                 bytes_descargados_sesion = 0

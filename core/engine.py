@@ -9,7 +9,7 @@ from .upnshare_resolver import obtener_link_mp4_upnshare
 from .downloader import descargar_video
 from .browser_manager import crear_pagina_stealth
 from providers.base import BaseAnimeProvider
-from config import TAMANIO_MINIMO_VIDEO_MB, UPNSHARE_HEADERS
+from config import TAMANIO_MINIMO_VIDEO_MB
 
 async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, destino: str, provider: BaseAnimeProvider, session: object, sem: asyncio.Semaphore) -> tuple:
     nombre_archivo = f"{serie}_Cap_{ep}.mp4"
@@ -53,7 +53,18 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                         _link_mp4 = await obtener_link_mp4_upnshare(page, url)
                         if not _link_mp4:
                             return None
-                        return {"tipo": "http", "url": _link_mp4, "headers": UPNSHARE_HEADERS}
+                        
+                        ua = await page.evaluate("navigator.userAgent")
+                        cookies_list = await page.context.cookies()
+                        cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies_list])
+                        
+                        upnshare_dynamic_headers = {
+                            "Referer": page.url,
+                            "User-Agent": ua,
+                            "Cookie": cookie_str
+                        }
+                        
+                        return {"tipo": "http", "url": _link_mp4, "headers": upnshare_dynamic_headers}
     
                     return None
                 except Exception as ex:

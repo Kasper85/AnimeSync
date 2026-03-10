@@ -76,8 +76,8 @@ class AnimeDbsProvider(BaseAnimeProvider):
             # Esperar a que la red esté quieta (necesario para que AnimeDbs cargue los botones via JS)
             try:
                 await page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                pass  # Si la página sigue activa, intentamos igual
+            except Exception as e:
+                logging.debug(f"Networkidle timeout: {e}")  # Si la página sigue activa, intentamos igual
             
             # Buscar el contenedor con los botones de servidor
             selector_servidores = 'div.soraurlx'

@@ -1,7 +1,6 @@
 import logging
 import re
 from typing import List, Optional
-from urllib.parse import urljoin
 from .base import BaseAnimeProvider
 
 class KatanimeProvider(BaseAnimeProvider):
@@ -64,8 +63,8 @@ class KatanimeProvider(BaseAnimeProvider):
                 try:
                     await page.wait_for_selector(selector_mediafire, timeout=3000)
                     break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"Intento {_+1} fallido por: {e}")
             
             enlace_espera = None
             try:
@@ -84,8 +83,8 @@ class KatanimeProvider(BaseAnimeProvider):
                     # Tolerancia radical a la carga de Cloudflare del modal 
                     await page.wait_for_selector(selector_linkbutton, state="attached", timeout=45000)
                     await page.wait_for_function('document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mediafire.com")', timeout=45000)
-                except Exception as wait_e:
-                    logging.warning(f"Timeout esperando #linkButton para Mediafire en Katanime.")
+                except Exception:
+                    logging.warning("Timeout esperando #linkButton para Mediafire en Katanime.")
                     return None
                 
                 enlace_mediafire = await page.locator(selector_linkbutton).get_attribute('href')
@@ -109,8 +108,8 @@ class KatanimeProvider(BaseAnimeProvider):
                     enlace_final_mega = await page.locator(selector_linkbutton_mega).get_attribute('href')
                     if enlace_final_mega:
                          return {"url": enlace_final_mega.strip(), "server": "mega"}
-            except Exception as e:
-                logging.warning(f"Timeout o error esperando botón de Mega en Katanime.")
+            except Exception:
+                logging.warning("Timeout o error esperando botón de Mega en Katanime.")
                 
             return None
 

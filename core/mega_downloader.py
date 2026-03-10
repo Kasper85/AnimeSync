@@ -14,7 +14,7 @@ def descargar_video_mega(url: str, serie: str, nombre_archivo: str, destino: str
         m = mega.login() # Login temporal anónimo
         
         # mega.py prefiere descargar a un directorio
-        print(f"📥 [MEGA] Desencriptando y descargando...")
+        print("📥 [MEGA] Desencriptando y descargando...")
         
         # Descargamos
         archivo_descargado = m.download_url(url, dest_path=destino)

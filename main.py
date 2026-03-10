@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import asyncio
 import time
@@ -113,13 +112,12 @@ async def run_scraper():
             async def worker(worker_id):
                 while True:
                     tarea = await cola_tareas.get()
-                    print(f"[{worker_id}] Tarea obtenida: {tarea['ep']} - URL: {tarea['url']}")
                     try:
                         # Aborte ultra-rápido en O(1) si la serie topó pared 404
                         if tarea['serie'] in estado["series_canceladas"]:
-                            print(f"[{worker_id}] Serie cancelada, saltando: {tarea['serie']}")
                             continue
                             
+                        print(f"[{worker_id}] Tarea obtenida: {tarea['ep']} - URL: {tarea['url']}")
                         print(f"[{worker_id}] Iniciando descarga: CAPÍTULO {tarea['ep']} ({tarea['serie']}) - {tarea['url']}")
                         logging.info(f"\n▶ --- INICIANDO DESCARGA: CAPÍTULO {tarea['ep']} ({tarea['serie']}) ---")
                         
@@ -165,7 +163,7 @@ async def run_scraper():
         tiempo_total_app = time.time() - estado["tiempo_inicio"]
         megas_totales = estado["total_bytes"] / (1024 * 1024)
         
-        logging.info(f"\n🎉 --- PROCESO COMPLETADO --- 🎉")
+        logging.info("\n🎉 --- PROCESO COMPLETADO --- 🎉")
         print("\n" + "="*50)
         print("📊 ESTADÍSTICAS FINALES 📊")
         print("="*50)
@@ -185,9 +183,9 @@ async def run_scraper():
                 rango_str = f"({min(exitos)}-{max(exitos)})" if len(exitos) > 1 else f"({exitos[0]})"
                 print(f"[✔️] Todos los capítulos descargados {rango_str}.")
             else:
-                print(f"[✔️] Todos los capítulos solicitados fueron descargados.")
+                print("[✔️] Todos los capítulos solicitados fueron descargados.")
         else:
-            print(f"[⚠️] No se procesó ninguna descarga.")
+            print("[⚠️] No se procesó ninguna descarga.")
 
         await browser.close()
 

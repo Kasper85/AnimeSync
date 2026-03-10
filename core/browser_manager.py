@@ -2,7 +2,6 @@ import platform
 import os
 import logging
 import random
-from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from utils.network import resolver_ip_dominio
 
@@ -31,9 +30,11 @@ def obtener_ruta_navegador() -> str:
     sistema = platform.system()
     if sistema == 'Windows':
         ruta_brave = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
-        if os.path.exists(ruta_brave): return ruta_brave
+        if os.path.exists(ruta_brave):
+            return ruta_brave
         ruta_chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-        if os.path.exists(ruta_chrome): return ruta_chrome
+        if os.path.exists(ruta_chrome):
+            return ruta_chrome
     elif sistema == 'Linux':
         return "/usr/bin/brave-browser" 
     elif sistema == 'Darwin':

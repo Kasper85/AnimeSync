@@ -1,7 +1,6 @@
 import logging
 import re
 from typing import List, Optional
-from urllib.parse import urljoin
 from .base import BaseAnimeProvider
 
 class LatAnimeProvider(BaseAnimeProvider):
@@ -38,7 +37,7 @@ class LatAnimeProvider(BaseAnimeProvider):
             enlace = await page.locator(selector_mediafire).get_attribute('href')
             if enlace:
                 return {"url": enlace.strip(), "server": "mediafire"}
-        except Exception as e:
+        except Exception:
             logging.info(f"No se encontró Mediafire en LatAnime para {episode_url}. Intentando Mega...")
             
         try:
