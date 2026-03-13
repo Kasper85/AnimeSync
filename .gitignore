@@ -41,8 +41,7 @@ venv.bak/
 *.swo
 
 # Project specific
-analisis_software.md
-animesync.log
+technical_specifications.md
 # Aquí puedes agregar las carpetas donde se guardan los animes descargados si no quieres subirlas
 # Por ejemplo, si los animes se descargan en la misma carpeta del script:
 */*.mp4

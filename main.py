@@ -20,7 +20,7 @@ setup_logging()
 async def run_scraper():
     print("==============================================")
     print("   🚀 MULTI-SCRAPER ASÍNCRONO DE ANIME 🚀   ")
-    print("        [ Arquitectura Modular v2.0 ]         ")
+    print("        [ AnimeSync v2.1 ]         ")
     print("==============================================")
     
     url_base = input("\nIngresa la URL principal de la serie (Ej. jkanime.net/naruto): ").strip()
@@ -38,6 +38,8 @@ async def run_scraper():
     
     # Delegamos al provider para saber si pegaron un episodio aislado
     info_episodio = provider.extract_episode_info(url_base)
+    
+    es_dinamico = False
     
     if info_episodio:
         print(f"\n📌 Has ingresado la URL de UN SOLO episodio (Cap {info_episodio['ep_num']}). Se descargará individualmente.")
@@ -58,9 +60,18 @@ async def run_scraper():
         print("\n[INFO] Determinando lista de episodios...")
         try:
             urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin)
-            print(f"[PREPARE] URLs obtenidas: {urls_episodios}")
+            
+            # Si el provider devolvió una lista razonable (scrapeó la página), usarla tal cual
             if ep_fin == 9999 and len(urls_episodios) < 9000:
                 ep_fin = ep_inicio + len(urls_episodios) - 1
+                print(f"[PREPARE] El provider detectó {len(urls_episodios)} episodios.")
+            elif ep_fin == 9999:
+                # El provider no pudo detectar el total (modo ciego) -> activar modo dinámico
+                es_dinamico = True
+                print(f"[PREPARE] No se pudo detectar el total de episodios. Modo dinámico activado.")
+            else:
+                print(f"[PREPARE] {len(urls_episodios)} episodios en rango solicitado.")
+                
         except Exception as e:
             logging.error(f"Fallo al construir URLs para la serie: {e}")
             return
@@ -75,22 +86,10 @@ async def run_scraper():
     ruta_destino = os.path.join(os.getcwd(), nombre_serie)
     os.makedirs(ruta_destino, exist_ok=True)
     
-    # Empaquetamos en formato Tarea
-    tareas_iniciales = []
-    for i, url in enumerate(urls_episodios, start=ep_inicio):
-        tareas_iniciales.append({
-            "url": url,
-            "ep": str(i),
-            "serie": nombre_serie,
-            "destino": ruta_destino,
-            "provider": provider,
-            "fin_dinamico": ep_fin == 9999
-        })
-        
-    if ep_fin == 9999:
+    if es_dinamico:
         print(f"\n[PREPARE] Buscando dinámicamente episodios desde el cap {ep_inicio} en adelante...")
     else:
-        print(f"\n[PREPARE] Total de tareas iniciales: {len(tareas_iniciales)} (Caps {ep_inicio} al {ep_fin})")
+        print(f"\n[PREPARE] Total de tareas: {len(urls_episodios)} (Caps {ep_inicio} al {ep_fin})")
         
     async with async_playwright() as p:
         # Browser inyectando reglas de bypass de DNS para el dominio del provider
@@ -110,7 +109,8 @@ async def run_scraper():
                 "total_tiempo_enlaces": 0,
                 "total_tiempo_descargas": 0,
                 "tiempo_inicio": time.time(),
-                "descargas": {"exitos": set(), "fallos": set()}
+                "descargas": {"exitos": set(), "fallos": set()},
+                "ultimo_ep_exitoso": 0,     # Track del último episodio exitoso (para stats limpias)
             }
     
             async def worker(worker_id):
@@ -138,15 +138,39 @@ async def run_scraper():
     
                         if not resultado:
                             estado["descargas"]["fallos"].add(tarea['ep'])
-                            if tarea['fin_dinamico']:
-                                logging.info(f"🛑 [Cap {tarea['ep']}] No encontrado tras reintentos. Finalizando proceso de serie.")
-                                estado["series_canceladas"].add(tarea['serie'])
+                            
+                            # Lógica de 3 fallos consecutivos para series dinámicas
+                            if tarea.get('fin_dinamico') and str(tarea['ep']).isdigit():
+                                fallos_ints = {int(x) for x in estado["descargas"]["fallos"] if str(x).isdigit()}
+                                ep_int = int(tarea['ep'])
+                                
+                                if (ep_int - 2 in fallos_ints and ep_int - 1 in fallos_ints and ep_int in fallos_ints) or \
+                                   (ep_int - 1 in fallos_ints and ep_int in fallos_ints and ep_int + 1 in fallos_ints) or \
+                                   (ep_int in fallos_ints and ep_int + 1 in fallos_ints and ep_int + 2 in fallos_ints):
+                                    logging.info(f"🛑 [Cap {ep_int}] 3 fallos consecutivos detectados. Finalizando búsqueda para la serie.")
+                                    estado["series_canceladas"].add(tarea['serie'])
+                                    
+                                    # Vaciar la cola para evitar que workers procesen más caps
+                                    while not cola_tareas.empty():
+                                        try:
+                                            cola_tareas.get_nowait()
+                                            cola_tareas.task_done()
+                                        except asyncio.QueueEmpty:
+                                            break
+                                else:
+                                    logging.info(f"⚠️ [Cap {ep_int}] Falló pero no se aborta la serie aún (regla de 3 fallos).")
                             
                         else:
                             estado["total_bytes"] += b_descargados
                             estado["total_tiempo_enlaces"] += t_enlaces
                             estado["total_tiempo_descargas"] += t_descarga
                             estado["descargas"]["exitos"].add(tarea['ep'])
+                            
+                            # Actualizar el último episodio exitoso
+                            if str(tarea['ep']).isdigit():
+                                ep_int = int(tarea['ep'])
+                                if ep_int > estado["ultimo_ep_exitoso"]:
+                                    estado["ultimo_ep_exitoso"] = ep_int
                     finally:
                         cola_tareas.task_done()
     
@@ -154,7 +178,20 @@ async def run_scraper():
             num_workers = 10
             workers = [asyncio.create_task(worker(i)) for i in range(num_workers)]
     
-            for tarea in tareas_iniciales:
+            # === PRODUCTOR: alimentar la cola de tareas ===
+            for i, url in enumerate(urls_episodios, start=ep_inicio):
+                # CLAVE: Si la serie fue cancelada, dejar de meter tareas inmediatamente
+                if nombre_serie in estado["series_canceladas"]:
+                    break
+                    
+                tarea = {
+                    "url": url,
+                    "ep": str(i),
+                    "serie": nombre_serie,
+                    "destino": ruta_destino,
+                    "provider": provider,
+                    "fin_dinamico": es_dinamico
+                }
                 await cola_tareas.put(tarea)
                  
             try:
@@ -180,7 +217,14 @@ async def run_scraper():
         print("="*50 + "\n")
         
         exitos = sorted([int(x) if str(x).isdigit() else x for x in estado["descargas"]["exitos"]], key=lambda x: (isinstance(x, str), x))
-        fallos = sorted([int(x) if str(x).isdigit() else x for x in estado["descargas"]["fallos"]], key=lambda x: (isinstance(x, str), x))
+        fallos_raw = sorted([int(x) if str(x).isdigit() else x for x in estado["descargas"]["fallos"]], key=lambda x: (isinstance(x, str), x))
+        
+        # En modo dinámico, solo mostrar fallos REALES (dentro del rango de éxitos), 
+        # no los caps de sondeo que fallaron porque la serie ya terminó
+        if es_dinamico and estado["ultimo_ep_exitoso"] > 0:
+            fallos = [f for f in fallos_raw if isinstance(f, int) and f <= estado["ultimo_ep_exitoso"]]
+        else:
+            fallos = fallos_raw
         
         if fallos:
             print(f"[❌] Faltan los capítulos: {', '.join(map(str, fallos))}")

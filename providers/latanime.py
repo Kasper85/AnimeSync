@@ -19,9 +19,36 @@ class LatAnimeProvider(BaseAnimeProvider):
         return None
 
     async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
+        import urllib.request
+        from bs4 import BeautifulSoup
+        
         # Formato: https://latanime.org/ver/baki-dou-el-samurai-invencible-episodio-1
         series_url = series_url.rstrip('/')
         nombre_serie = series_url.split('/')[-1]
+        
+        # Intentar scrapear la página de la serie para obtener el total real
+        if end_ep == 9999:
+            try:
+                req = urllib.request.Request(series_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+                html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')  # nosec B310
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                cifra_max = 0
+                patron = re.compile(rf'{re.escape(nombre_serie)}-episodio-(\d+)')
+                for a in soup.find_all('a', href=True):
+                    m = patron.search(a['href'])
+                    if m:
+                        num = int(m.group(1))
+                        if num > cifra_max:
+                            cifra_max = num
+                
+                if cifra_max > 0:
+                    end_ep = min(end_ep, cifra_max)
+                    logging.info(f"[{self.name}] Detectados {cifra_max} episodios scrapeando la página.")
+                else:
+                    logging.warning(f"[{self.name}] No se encontraron episodios. Usando modo dinámico.")
+            except Exception as e:
+                logging.warning(f"[{self.name}] Falló scraping de la serie: {e}")
         
         urls = []
         for ep in range(start_ep, end_ep + 1):
