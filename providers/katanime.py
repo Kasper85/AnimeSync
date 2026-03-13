@@ -7,7 +7,7 @@ class KatanimeProvider(BaseAnimeProvider):
     name = "Katanime"
     domain = "katanime.net"
     base_url = "https://katanime.net"
-    priority_servers = ["Mediafire", "Mega"]
+    priority_servers = ["Mediafire", "UpnShare", "YourUpload", "Mega"]
     supports_dub = True
 
     @classmethod

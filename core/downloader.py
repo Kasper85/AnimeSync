@@ -19,7 +19,7 @@ async def descargar_video(url_directa, nombre_carpeta, nombre_archivo, session, 
         modo_apertura = 'ab'
 
     try:
-        async with session.get(url_directa, headers=headers) as respuesta:
+        async with session.get(url_directa, headers=headers, ssl=False) as respuesta:
             respuesta.raise_for_status()
 
             # 206 Partial Content significa que el servidor aceptó el Range

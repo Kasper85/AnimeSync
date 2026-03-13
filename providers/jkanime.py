@@ -7,7 +7,7 @@ class JKAnimeProvider(BaseAnimeProvider):
     name = "JKAnime"
     domain = "jkanime.net"
     base_url = "https://jkanime.net"
-    priority_servers = ["Mediafire", "Mega", "Streamwish", "VOE", "Mp4upload", "Vidhide"]
+    priority_servers = ["Mediafire", "UpnShare", "YourUpload", "Mega", "Streamwish", "VOE", "Mp4upload", "Vidhide"]
     supports_dub = True
 
     @classmethod

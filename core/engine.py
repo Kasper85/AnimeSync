@@ -4,6 +4,7 @@ import time
 import logging
 from tenacity import retry, stop_after_attempt, wait_fixed, wait_exponential
 from .mediafire_resolver import obtener_link_mp4_mediafire
+from .yourupload_resolver import obtener_link_mp4_yourupload
 from .mega_downloader import descargar_video_mega
 from .upnshare_resolver import obtener_link_mp4_upnshare
 from .downloader import descargar_video
@@ -22,6 +23,10 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
             logging.info(f"[SKIP] [Cap {ep}] Ya existe ({peso_mb:.1f} MB).")
             return True, 0, 0, 0
 
+    # Semáforo global estático exclusivo para descargas Mega, 1 a la vez para evitar EBLOCKED
+    if not hasattr(procesar_episodio, "mega_semaforo"):
+        procesar_episodio.mega_semaforo = asyncio.Semaphore(1)
+
     context = None
     try:
         # Escalonar con semaforo para no lanzar procesos anónimos al mismo milisegundo
@@ -35,37 +40,50 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
             async def intentar_obtener_links():
                 try:
                     # INYECCION DE DEPENDENCIA: el provider específico hace su magia
-                    datos_enlace = await provider.obtener_enlace_video(page, url_episodio)
-                    if not datos_enlace:
+                    datos_enlace_lista = await provider.obtener_enlace_video(page, url_episodio)
+                    if not datos_enlace_lista:
                         return None
-    
-                    server = datos_enlace.get("server", "")
-                    url = datos_enlace.get("url", "")
-    
-                    if server == "mediafire":
-                        _link_mp4 = await obtener_link_mp4_mediafire(url, session)
-                        if not _link_mp4:
-                            return None
-                        return {"tipo": "http", "url": _link_mp4}
-                    elif server == "mega":
-                        return {"tipo": "mega", "url": url}
-                    elif server == "upnshare":
-                        _link_mp4 = await obtener_link_mp4_upnshare(page, url)
-                        if not _link_mp4:
-                            return None
                         
-                        ua = await page.evaluate("navigator.userAgent")
-                        cookies_list = await page.context.cookies()
-                        cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies_list])
+                    # Compatibility with older providers that return a single dict instead of list
+                    if isinstance(datos_enlace_lista, dict):
+                        datos_enlace_lista = [datos_enlace_lista]
                         
-                        upnshare_dynamic_headers = {
-                            "Referer": page.url,
-                            "User-Agent": ua,
-                            "Cookie": cookie_str
-                        }
+                    resultados_extraidos = []
+                    for opc in datos_enlace_lista:
+                        server = opc.get("server", "")
+                        url = opc.get("url", "")
                         
-                        return {"tipo": "http", "url": _link_mp4, "headers": upnshare_dynamic_headers}
-    
+                        try:
+                            if server == "mediafire":
+                                _link_mp4 = await obtener_link_mp4_mediafire(url, session)
+                                if _link_mp4:
+                                    resultados_extraidos.append({"tipo": "http", "url": _link_mp4, "server": server})
+                            elif server == "yourupload":
+                                _link_mp4 = await obtener_link_mp4_yourupload(url, session)
+                                if _link_mp4:
+                                    resultados_extraidos.append({"tipo": "http", "url": _link_mp4, "headers": {"Referer": "https://www.yourupload.com/"}, "server": server})
+                            elif server == "mega":
+                                resultados_extraidos.append({"tipo": "mega", "url": url, "server": server})
+                            elif server == "upnshare":
+                                _link_mp4 = await obtener_link_mp4_upnshare(page, url)
+                                if _link_mp4:
+                                    ua = await page.evaluate("navigator.userAgent")
+                                    cookies_list = await page.context.cookies()
+                                    cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies_list])
+                                    
+                                    upnshare_dynamic_headers = {
+                                        "Referer": page.url,
+                                        "User-Agent": ua,
+                                        "Cookie": cookie_str
+                                    }
+                                    
+                                    resultados_extraidos.append({"tipo": "http", "url": _link_mp4, "headers": upnshare_dynamic_headers, "server": server})
+                        except Exception as parse_e:
+                            logging.warning(f"[Engine] Falló servidor secundario {server}: {parse_e}")
+                            pass
+                            
+                    if resultados_extraidos:
+                        return resultados_extraidos
                     return None
                 except Exception as ex:
                     logging.error(f"[Engine] Fallo subyacente al obtener enlaces para Cap {ep}: {ex}")
@@ -80,40 +98,57 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                         logging.error(f"[Engine] No se pudo guardar screenshot: {e_ss}")
                     raise ex
 
-            logging.info(f"Buscando enlace para Cap {ep}...")
+            logging.info(f"Buscando enlaces para Cap {ep}...")
             t0_enlace = time.time()
-            datos_descarga = await intentar_obtener_links()
+            datos_descarga_lista = await intentar_obtener_links()
             tiempo_enlace = time.time() - t0_enlace
 
         # === Fuera del semáforo: la descarga pesada ===
-        if not datos_descarga:
+        if not datos_descarga_lista:
             return False, 0, 0, 0
 
-        logging.info(f"[DOWNLOADING] Iniciando descarga ({datos_descarga['tipo']}): {nombre_archivo}...")
         t0_descarga = time.time()
         exito = False
         bytes_descargados = 0
+        
+        for datos_descarga in datos_descarga_lista:
+            logging.info(f"[DOWNLOADING] Iniciando descarga de proveedor ({datos_descarga['tipo']} - {datos_descarga.get('server', 'unknown')}): {nombre_archivo}...")
 
-        if datos_descarga["tipo"] == "http":
-            @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
-            async def intentar_descarga_http():
-                return await descargar_video(
-                    datos_descarga["url"],
-                    serie,
-                    nombre_archivo,
-                    session,
-                    headers_extra=datos_descarga.get("headers")
-                )
-            exito, bytes_descargados = await intentar_descarga_http()
+            if datos_descarga["tipo"] == "http":
+                @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
+                async def intentar_descarga_http():
+                    ex_h, b_h = await descargar_video(
+                        datos_descarga["url"],
+                        serie,
+                        nombre_archivo,
+                        session,
+                        headers_extra=datos_descarga.get("headers")
+                    )
+                    if not ex_h: raise Exception("Fallo descarga HTTP")
+                    return ex_h, b_h
+                try:
+                    exito, bytes_descargados = await intentar_descarga_http()
+                except Exception:
+                    exito, bytes_descargados = False, 0
+    
+            elif datos_descarga["tipo"] == "mega":
+                @retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
+                async def intentar_descarga_mega():
+                    async with procesar_episodio.mega_semaforo:
+                        res = await asyncio.to_thread(
+                            descargar_video_mega, datos_descarga["url"], serie, nombre_archivo, destino
+                        )
+                    if not res: raise Exception("Fallo descarga Mega")
+                    return res, 0
+                try:
+                    exito, bytes_descargados = await intentar_descarga_mega()
+                except Exception:
+                    exito, bytes_descargados = False, 0
 
-        elif datos_descarga["tipo"] == "mega":
-            @retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
-            async def intentar_descarga_mega():
-                res = await asyncio.to_thread(
-                    descargar_video_mega, datos_descarga["url"], serie, nombre_archivo, destino
-                )
-                return res, 0
-            exito, bytes_descargados = await intentar_descarga_mega()
+            if exito:
+                break
+            else:
+                logging.warning(f"[DOWNLOADING] Ocurrió un fallo en origen {datos_descarga.get('server', 'unknown')} para {nombre_archivo}. Pasando al siguiente proveedor si existe...")
 
         tiempo_descarga = time.time() - t0_descarga
 

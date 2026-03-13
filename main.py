@@ -59,6 +59,8 @@ async def run_scraper():
         try:
             urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin)
             print(f"[PREPARE] URLs obtenidas: {urls_episodios}")
+            if ep_fin == 9999 and len(urls_episodios) < 9000:
+                ep_fin = ep_inicio + len(urls_episodios) - 1
         except Exception as e:
             logging.error(f"Fallo al construir URLs para la serie: {e}")
             return
@@ -76,7 +78,6 @@ async def run_scraper():
     # Empaquetamos en formato Tarea
     tareas_iniciales = []
     for i, url in enumerate(urls_episodios, start=ep_inicio):
-        print(f"[PREPARE] Añadiendo tarea Ep {i}: {url}")
         tareas_iniciales.append({
             "url": url,
             "ep": str(i),
@@ -86,7 +87,10 @@ async def run_scraper():
             "fin_dinamico": ep_fin == 9999
         })
         
-    print(f"[PREPARE] Total tareas iniciales: {len(tareas_iniciales)}")
+    if ep_fin == 9999:
+        print(f"\n[PREPARE] Buscando dinámicamente episodios desde el cap {ep_inicio} en adelante...")
+    else:
+        print(f"\n[PREPARE] Total de tareas iniciales: {len(tareas_iniciales)} (Caps {ep_inicio} al {ep_fin})")
         
     async with async_playwright() as p:
         # Browser inyectando reglas de bypass de DNS para el dominio del provider
@@ -132,18 +136,17 @@ async def run_scraper():
                             sem_nav
                         )
     
-                        if not resultado and tarea['fin_dinamico']:
-                            logging.info(f"🛑 [Cap {tarea['ep']}] No encontrado tras reintentos. Finalizando proceso de serie.")
-                            estado["series_canceladas"].add(tarea['serie'])
+                        if not resultado:
+                            estado["descargas"]["fallos"].add(tarea['ep'])
+                            if tarea['fin_dinamico']:
+                                logging.info(f"🛑 [Cap {tarea['ep']}] No encontrado tras reintentos. Finalizando proceso de serie.")
+                                estado["series_canceladas"].add(tarea['serie'])
                             
                         else:
-                            if resultado:
-                                estado["total_bytes"] += b_descargados
-                                estado["total_tiempo_enlaces"] += t_enlaces
-                                estado["total_tiempo_descargas"] += t_descarga
-                                estado["descargas"]["exitos"].add(tarea['ep'])
-                            else:
-                                estado["descargas"]["fallos"].add(tarea['ep'])
+                            estado["total_bytes"] += b_descargados
+                            estado["total_tiempo_enlaces"] += t_enlaces
+                            estado["total_tiempo_descargas"] += t_descarga
+                            estado["descargas"]["exitos"].add(tarea['ep'])
                     finally:
                         cola_tareas.task_done()
     
@@ -154,11 +157,14 @@ async def run_scraper():
             for tarea in tareas_iniciales:
                 await cola_tareas.put(tarea)
                  
-            # Esperamos a drenar la cola
-            await cola_tareas.join()
-            
-            for w in workers:
-                w.cancel()
+            try:
+                # Esperamos a drenar la cola
+                await cola_tareas.join()
+            except asyncio.CancelledError:
+                logging.warning("\n[Abortado] Detenido por el usuario durante las descargas.")
+            finally:
+                for w in workers:
+                    w.cancel()
 
         tiempo_total_app = time.time() - estado["tiempo_inicio"]
         megas_totales = estado["total_bytes"] / (1024 * 1024)
@@ -193,8 +199,17 @@ if __name__ == "__main__":
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        
+        main_task = loop.create_task(run_scraper())
+        
         try:
-            loop.run_until_complete(run_scraper())
+            loop.run_until_complete(main_task)
+        except KeyboardInterrupt:
+            main_task.cancel()
+            try:
+                loop.run_until_complete(main_task)
+            except asyncio.CancelledError:
+                pass
         finally:
             loop.run_until_complete(loop.shutdown_default_executor())
             pending = asyncio.all_tasks(loop)
@@ -203,7 +218,5 @@ if __name__ == "__main__":
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.close()
             
-    except KeyboardInterrupt:
-        logging.error("\n[Abortado] Detenido por el usuario.")
     except ValueError:
         logging.error("\n[Error] Por favor, ingresa números válidos.")

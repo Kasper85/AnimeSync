@@ -9,8 +9,7 @@ class AnimeDbsProvider(BaseAnimeProvider):
     name = "AnimeDbs"
     domain = "animedbs.online"
     base_url = "https://www.animedbs.online"
-    priority_servers = ["UpnShare", "Mediafire", "Mega", "voe", "PixelDrain"]
-    priority_servers = ["UpnShare", "Mediafire", "Mega", "voe", "PixelDrain"]
+    priority_servers = ["Mediafire", "UpnShare", "YourUpload", "Mega", "voe", "PixelDrain"]
     supports_dub = True
 
     @classmethod

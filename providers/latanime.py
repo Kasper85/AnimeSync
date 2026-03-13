@@ -7,7 +7,7 @@ class LatAnimeProvider(BaseAnimeProvider):
     name = "LatAnime"
     domain = "latanime.org"
     base_url = "https://latanime.org"
-    priority_servers = ["Mediafire", "Mega"]
+    priority_servers = ["Mediafire", "UpnShare", "YourUpload", "Mega"]
     supports_dub = True
 
     @classmethod

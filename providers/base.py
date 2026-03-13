@@ -17,10 +17,10 @@ class BaseAnimeProvider(ABC):
         pass
 
     @abstractmethod
-    async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
+    async def obtener_enlace_video(self, page, episode_url: str) -> List[dict] | Optional[dict]:
         """
         Navega al episodio usando Playwright y extrae el enlace web de Mediafire o Mega (fallback).
-        Retorna un diccionario: {"url": "enlace", "server": "mediafire|mega"}
+        Retorna una lista de diccionarios ordenados por prioridad: [{"url": "enlace", "server": "mediafire"}, ...] o un solo diccionario.
         """
         pass
 
