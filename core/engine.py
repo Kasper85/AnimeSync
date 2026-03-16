@@ -2,13 +2,14 @@ import os
 import asyncio
 import time
 import logging
+from urllib.parse import urlparse
 from tenacity import retry, stop_after_attempt, wait_fixed, wait_exponential
 from .mediafire_resolver import obtener_link_mp4_mediafire
 from .yourupload_resolver import obtener_link_mp4_yourupload
 from .mega_downloader import descargar_video_mega
 from .upnshare_resolver import obtener_link_mp4_upnshare
 from .downloader import descargar_video
-from .browser_manager import crear_pagina_stealth
+from .browser_manager import crear_pagina_stealth, obtener_ip_para_dominio, marcar_ip_bloqueada
 from providers.base import BaseAnimeProvider
 from config import TAMANIO_MINIMO_VIDEO_MB
 
@@ -98,9 +99,56 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                         logging.error(f"[Engine] No se pudo guardar screenshot: {e_ss}")
                     raise ex
 
-            logging.info(f"Buscando enlaces para Cap {ep}...")
+            logging.debug(f"Buscando enlaces para Cap {ep}...")
             t0_enlace = time.time()
-            datos_descarga_lista = await intentar_obtener_links()
+            
+            # Extraer dominio para gestión de IPs
+            dominio = urlparse(url_episodio).netloc
+            
+            # Intentar obtener enlaces con reintento si falla
+            # Nota: El cambio real de IP requiere recrear el navegador (browser_manager)
+            # Aquí marcaremos el dominio como problemático para siguientes episodios
+            intentos = 0
+            max_intentos = 2
+            datos_descarga_lista = None
+            error_excepcion = False
+            ip_excluir = None
+            
+            while intentos < max_intentos and not datos_descarga_lista:
+                 error_excepcion = False
+                 try:
+                     datos_descarga_lista = await intentar_obtener_links()
+                 except Exception as e:
+                     error_excepcion = True
+                     logging.warning(f"[Cap {ep}] Excepción en intento {intentos + 1}: {e}")
+                 
+                 if not datos_descarga_lista:
+                     # Obtener una IP alternativa para el siguiente intento
+                     # (Nota: el cambio real de IP requiere recrear el navegador)
+                     ip_to_exclude_next_attempt = obtener_ip_para_dominio(dominio, ip_excluir)
+                     
+                     intentos += 1
+                     if intentos < max_intentos:
+                         if error_excepcion:
+                             logging.debug(f"[Cap {ep}] Error. Reintento {intentos + 1}/{max_intentos}...")
+                         else:
+                             logging.debug(f"[Cap {ep}] Sin enlaces. Reintento {intentos + 1}/{max_intentos}...")
+                         
+                         # Simplemente recargar la página en lugar de cerrar/recrear contexto
+                         # Esto evita condiciones de carrera cuando múltiples workers retryan
+                         await page.goto("about:blank")
+                         await asyncio.sleep(1)
+                     
+                     # Actualizar ip_excluir para el próximo ciclo
+                     ip_excluir = ip_to_exclude_next_attempt
+            
+            # Log final si fallaron todos los intentos
+            if not datos_descarga_lista:
+                logging.error(f"[Cap {ep}] Fallaron todos los {max_intentos} intentos de obtener enlaces")
+                # Bloquear la última IP usada para que no se use en futuros episodios
+                if ip_excluir:
+                    marcar_ip_bloqueada(ip_excluir, dominio)
+            
             tiempo_enlace = time.time() - t0_enlace
 
         # === Fuera del semáforo: la descarga pesada ===
@@ -112,7 +160,7 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         bytes_descargados = 0
         
         for datos_descarga in datos_descarga_lista:
-            logging.info(f"[DOWNLOADING] Iniciando descarga de proveedor ({datos_descarga['tipo']} - {datos_descarga.get('server', 'unknown')}): {nombre_archivo}...")
+            logging.debug(f"[DOWNLOADING] Iniciando descarga de proveedor ({datos_descarga['tipo']} - {datos_descarga.get('server', 'unknown')}): {nombre_archivo}...")
 
             if datos_descarga["tipo"] == "http":
                 @retry(stop=stop_after_attempt(5), wait=wait_fixed(3))
@@ -153,7 +201,9 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         tiempo_descarga = time.time() - t0_descarga
 
         if exito:
-            logging.info(f"[OK] ¡LISTO! {nombre_archivo} descargado.")
+            # Mostrar mensaje limpio con timestamp
+            timestamp = time.strftime("%H:%M:%S")
+            print(f"[{timestamp}] {ep} - Descargado")
 
         return exito, tiempo_enlace, tiempo_descarga, bytes_descargados
 
