@@ -3,10 +3,21 @@ import os
 import logging
 import random
 from playwright_stealth import Stealth
-from utils.network import resolver_ip_dominio
+from utils.network import resolver_ip_dominio, obtener_todas_ips, obtener_ip_fallback
 
 # Instancia global de Stealth (se reutiliza para todos los contextos)
 _stealth = Stealth()
+
+# Almacena IPs ya utilizadas para evitar repetirlas
+_ips_utilizadas = {}
+_ips_bloqueadas = set()
+
+# Límites para evitar memory leaks y acumulación infinita de IPs
+_MAX_IPS_POR_DOMINIO = 10
+_MAX_IPS_BLOQUEADAS = 20
+
+# Límite seguro para episodios en modo dinámico cuando falla el scraping
+_DINAMICO_EPISODIOS_LIMITE = 20
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -41,24 +52,92 @@ def obtener_ruta_navegador() -> str:
         return "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" 
     return None
 
-async def crear_navegador(playwright_context, dominio_ip: str):
+async def crear_navegador(playwright_context, dominio_ip: str, ip_excluir: str = None):
     """
     Inicializa el navegador aplicando las reglas de resolución DNS 
     (Google DoH) para saltar bloqueos de operadoras en el dominio base dado.
+    
+    Args:
+        playwright_context: Contexto de Playwright
+        dominio_ip: Dominio a resolver
+        ip_excluir: IP a excluir (para reintentos con otra IP)
     """
     ruta_navegador = obtener_ruta_navegador()
     argumentos_lanzamiento = {"headless": True, "args": []}
     
     if ruta_navegador:
         argumentos_lanzamiento["executable_path"] = ruta_navegador
-        
-    ip_resuelta = resolver_ip_dominio(dominio_ip)
+    
+    # Obtener IP, intentando excluir las que ya fallaron
+    ip_resuelta = obtener_ip_para_dominio(dominio_ip, ip_excluir)
+    
     if ip_resuelta:
-        logging.info(f"DNS Bypass activado para: {dominio_ip} -> {ip_resuelta}")
+        logging.debug(f"DNS Bypass: {dominio_ip} -> {ip_resuelta}")
         argumentos_lanzamiento["args"].append(f"--host-resolver-rules=MAP {dominio_ip} {ip_resuelta}")
+    else:
+        logging.warning(f"No se pudo resolver IP para {dominio_ip}")
 
     browser = await playwright_context.chromium.launch(**argumentos_lanzamiento)
     return browser
+
+def obtener_ip_para_dominio(dominio: str, ip_excluir: str = None) -> str:
+    """
+    Obtiene una IP válida para el dominio, evitando las bloqueadas y las ya utilizadas.
+    """
+    # Inicializar lista de IPs utilizadas para este dominio
+    if dominio not in _ips_utilizadas:
+        _ips_utilizadas[dominio] = []
+    
+    # Limpiar IPs antiguas si excede el límite (mantener las más recientes)
+    if len(_ips_utilizadas[dominio]) > _MAX_IPS_POR_DOMINIO:
+        _ips_utilizadas[dominio] = _ips_utilizadas[dominio][-_MAX_IPS_POR_DOMINIO:]
+    
+    # Intentar obtener IPs del DNS
+    ips_dns = obtener_todas_ips(dominio)
+    
+    # Filtrar IPs ya utilizadas y bloqueadas
+    ips_validas = [ip for ip in ips_dns if ip not in _ips_utilizadas[dominio] and ip not in _ips_bloqueadas]
+    
+    if ips_validas:
+        ip_elegida = random.choice(ips_validas)
+        _ips_utilizadas[dominio].append(ip_elegida)
+        return ip_elegida
+    
+    # Si no hay IPs del DNS disponibles, intentar con el pool de fallback
+    ip_fallback = obtener_ip_fallback(dominio)
+    if ip_fallback and ip_fallback != ip_excluir and ip_fallback not in _ips_bloqueadas and ip_fallback not in _ips_utilizadas[dominio]:
+        _ips_utilizadas[dominio].append(ip_fallback)
+        logging.info(f"Usando IP de fallback para {dominio}: {ip_fallback}")
+        return ip_fallback
+    
+    # Si tenemos IPs utilizadas, devolver una al azar que no sea la excluida
+    if _ips_utilizadas[dominio]:
+        otras_ips = [ip for ip in _ips_utilizadas[dominio] if ip != ip_excluir]
+        if otras_ips:
+            return random.choice(otras_ips)
+    
+    # Último recurso: cualquier IP del DNS
+    if ips_dns:
+        return ips_dns[0]
+    
+    # Si todo falla, devolver una IP predeterminada o lanzar excepción
+    # En lugar de retornar None que podría causar problemas, usamos una IP de loopback como último recurso
+    logging.error(f"No se pudo obtener IP para {dominio}, usando 127.0.0.1 como último recurso")
+    return "127.0.0.1"
+
+def marcar_ip_bloqueada(ip: str, dominio: str):
+    """Marca una IP como bloqueada para no volver a usarla."""
+    global _ips_bloqueadas
+    
+    # Limpiar IPs antiguas si excede el límite (mantener las más recientes)
+    if len(_ips_bloqueadas) > _MAX_IPS_BLOQUEADAS:
+        # Eliminar las IPs más antiguas, mantener solo las más recientes
+        ips_list = list(_ips_bloqueadas)
+        ips_list = ips_list[-_MAX_IPS_BLOQUEADAS:]
+        _ips_bloqueadas = set(ips_list)
+    
+    _ips_bloqueadas.add(ip)
+    logging.warning(f"IP {ip} marcada como bloqueada para {dominio}")
 
 async def crear_pagina_stealth(browser) -> tuple:
     """
