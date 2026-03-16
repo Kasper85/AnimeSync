@@ -2,6 +2,7 @@ import logging
 import re
 from typing import List, Optional
 from .base import BaseAnimeProvider
+from core.browser_manager import _DINAMICO_EPISODIOS_LIMITE
 
 class KatanimeProvider(BaseAnimeProvider):
     name = "Katanime"
@@ -18,8 +19,8 @@ class KatanimeProvider(BaseAnimeProvider):
             return {"ep_num": int(match.group(2)), "serie": match.group(1)}
         return None
 
-    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
-        import urllib.request
+    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999, browser=None) -> List[str]:
+        import re
         from bs4 import BeautifulSoup
         
         # Formato: https://katanime.net/capitulo/ad-police-tv-1/
@@ -29,8 +30,24 @@ class KatanimeProvider(BaseAnimeProvider):
         # Intentar scrapear la página de la serie para obtener el total real
         if end_ep == 9999:
             try:
-                req = urllib.request.Request(series_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-                html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')  # nosec B310
+                html = None
+                
+                # Usar Playwright si está disponible (bypass DNS)
+                if browser:
+                    try:
+                        page = await browser.new_page()
+                        await page.goto(series_url, timeout=15000)
+                        html = await page.content()
+                        await page.close()
+                    except Exception as e:
+                        logging.warning(f"[{self.name}] Falló scraping con Playwright: {e}")
+                
+                # Fallback a urllib si Playwright no está disponible o falló
+                if not html:
+                    import urllib.request
+                    req = urllib.request.Request(series_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+                    html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')  # nosec B310
+                
                 soup = BeautifulSoup(html, 'html.parser')
                 
                 cifra_max = 0
@@ -49,6 +66,8 @@ class KatanimeProvider(BaseAnimeProvider):
                     logging.warning(f"[{self.name}] No se encontraron episodios. Usando modo dinámico.")
             except Exception as e:
                 logging.warning(f"[{self.name}] Falló scraping de la serie: {e}")
+                # Limitar a un número razonable de episodios para modo dinámico
+                end_ep = _DINAMICO_EPISODIOS_LIMITE  # Límite seguro para evitar miles de URLs inválidas
         
         urls = []
         for ep in range(start_ep, end_ep + 1):

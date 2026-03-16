@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from .base import BaseAnimeProvider
 from utils.network import resolver_ip_dominio
+from core.browser_manager import _DINAMICO_EPISODIOS_LIMITE
 
 class JKAnimeProvider(BaseAnimeProvider):
     name = "JKAnime"
@@ -87,14 +88,29 @@ class JKAnimeProvider(BaseAnimeProvider):
             
         return body.decode('utf-8', errors='ignore')
 
-    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999) -> List[str]:
+    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999, browser=None) -> List[str]:
         if not series_url.endswith('/'):
             series_url += '/'
         
         # Intentar scrapear la página de la serie para obtener el total real de episodios
         if end_ep == 9999:
             try:
-                html = self._fetch_html_con_bypass(series_url)
+                html = None
+                
+                # Usar Playwright si está disponible (bypass DNS)
+                if browser:
+                    try:
+                        page = await browser.new_page()
+                        await page.goto(series_url, timeout=15000)
+                        html = await page.content()
+                        await page.close()
+                    except Exception as e:
+                        logging.warning(f"[{self.name}] Falló scraping con Playwright: {e}")
+                
+                # Fallback al método original de socket si Playwright no está disponible o falló
+                if not html:
+                    html = self._fetch_html_con_bypass(series_url)
+                
                 soup = BeautifulSoup(html, 'html.parser')
                 
                 cifra_max = 0
@@ -113,6 +129,8 @@ class JKAnimeProvider(BaseAnimeProvider):
                     logging.warning(f"[{self.name}] No se encontró el conteo de episodios. Usando modo dinámico.")
             except Exception as e:
                 logging.warning(f"[{self.name}] Falló scraping de la serie, usando modo dinámico: {e}")
+                # Limitar a un número razonable de episodios para modo dinámico
+                end_ep = _DINAMICO_EPISODIOS_LIMITE  # Límite seguro para evitar miles de URLs inválidas
         
         urls = []
         for ep in range(start_ep, end_ep + 1):
@@ -131,18 +149,28 @@ class JKAnimeProvider(BaseAnimeProvider):
             
             # ESTRATEGIA 1: Leer la tabla de descargas directamente del HTML
             # La tabla existe en div.download con enlaces directos a c1.jkplayers.com
+            tabla_encontrada = False
             try:
                 await page.wait_for_selector('div.download table', timeout=8000)
-            except Exception:
+                tabla_encontrada = True
+                logging.debug(f"[{self.name}] Tabla de descargas encontrada en {episode_url}")
+            except Exception as e:
+                logging.debug(f"[{self.name}] No se encontró tabla con selector 'div.download table': {e}")
                 # ESTRATEGIA 2: Fallback - click en botón #dwld
                 try:
                     boton_descarga = page.locator('#dwld')
                     await boton_descarga.wait_for(state="visible", timeout=8000)
                     await boton_descarga.click()
                     await page.wait_for_selector('table tbody tr', timeout=8000)
-                except Exception as e:
-                    logging.error(f"[{self.name}] No se encontró tabla de descargas ni botón #dwld: {e}")
+                    tabla_encontrada = True
+                    logging.debug(f"[{self.name}] Tabla encontrada después de hacer click en #dwld")
+                except Exception as e2:
+                    logging.warning(f"[{self.name}] No se encontró tabla de descargas ni botón #dwld: {e2}")
                     return None
+            
+            if not tabla_encontrada:
+                logging.warning(f"[{self.name}] No se pudo encontrar tabla de descargas para {episode_url}")
+                return None
             
             # Extraer opciones de descarga de la tabla
             filas = await page.locator('table tbody tr:not(:first-child)').all()
@@ -164,7 +192,7 @@ class JKAnimeProvider(BaseAnimeProvider):
                         continue
                     
             if not opciones_descarga:
-                logging.warning(f"[{self.name}] Tabla encontrada pero sin enlaces válidos.")
+                logging.warning(f"[{self.name}] Tabla encontrada pero sin enlaces válidos en {episode_url}. HTML preview: {(await page.content())[:500]}")
                 return None
 
         except Exception as e:
