@@ -17,7 +17,8 @@ _MAX_IPS_POR_DOMINIO = 10
 _MAX_IPS_BLOQUEADAS = 20
 
 # Límite seguro para episodios en modo dinámico cuando falla el scraping
-_DINAMICO_EPISODIOS_LIMITE = 20
+# Aumentado de 13 a 50 para series más largas (típico anime tiene 12-25 caps por temporada, algunas llegan a 50+)
+_DINAMICO_EPISODIOS_LIMITE = 50
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",

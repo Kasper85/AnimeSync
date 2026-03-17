@@ -9,7 +9,12 @@ async def descargar_video(url_directa, nombre_carpeta, nombre_archivo, session, 
     os.makedirs(ruta_destino, exist_ok=True)
     ruta_completa = os.path.join(ruta_destino, nombre_archivo)
     
-    headers = headers_extra.copy() if headers_extra else {}
+    headers = headers_extra.copy() if headers_extra else {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Accept": "video/mp4,video/x-m4v,video/*;q=0.9,application/mp4;q=0.8,*/*;q=0.7",
+        "Accept-Language": "es-PE,es;q=0.9,en;q=0.8",
+        "Referer": "https://latanime.org/"
+    }
     modo_apertura = 'wb'
     tamanio_existente = 0
 

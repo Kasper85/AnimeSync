@@ -23,21 +23,44 @@ async def run_scraper():
     print("        [ AnimeSync v2.1 ]         ")
     print("==============================================")
     
-    url_base = input("\nIngresa la URL principal de la serie (Ej. jkanime.net/naruto): ").strip()
-    if not url_base:
-        logging.error("No se ingresó ninguna URL.")
+    # Solicitar URL(s) - soporta múltiples URLs separadas por coma o nueva línea
+    url_input = input("\nIngresa la(s) URL(s) de la serie (Ej. jkanime.net/naruto): ").strip()
+    if not url_input:
+        logging.error("No se ingreso ninguna URL.")
         return
-        
-    try:
-        provider = get_provider_for_url(url_base)
-    except ValueError as e:
-        logging.error(str(e))
-        return
-        
-    print(f"✅ Sitio detectado y soportado por provider: {provider.name}")
     
-    # Delegamos al provider para saber si pegaron un episodio aislado
-    info_episodio = provider.extract_episode_info(url_base)
+    # Parsear múltiples URLs (separadas por coma o newline)
+    urls = [u.strip() for u in url_input.replace('\n', ',').split(',') if u.strip()]
+    
+    if not urls:
+        logging.error("No se encontraron URLs válidas.")
+        return
+    
+    print(f"\n✅ Se procesarán {len(urls)} serie(s)")
+    
+    # Procesar cada URL - compartir navegador entre series para eficiencia
+    async with async_playwright() as p:
+        browser = None
+        
+        for idx, url_base in enumerate(urls, 1):
+            print(f"\n{'='*50}")
+            print(f"📺 PROCESANDO SERIE {idx}/{len(urls)}")
+            print(f"{'='*50}")
+            
+            try:
+                provider = get_provider_for_url(url_base)
+            except ValueError as e:
+                logging.warning(f"⚠️ URL ignorada (provider no soportado): {url_base} - {e}")
+                continue
+                
+            print(f"✅ Sitio detectado y soportado por provider: {provider.name}")
+            
+            # Crear browser si es la primera serie o si el dominio cambió
+            if browser is None:
+                browser = await crear_navegador(p, provider.domain)
+            
+            # Delegamos al provider para saber si pegaron un episodio aislado
+            info_episodio = provider.extract_episode_info(url_base)
     
     es_dinamico = False
     
@@ -59,7 +82,7 @@ async def run_scraper():
             
         print("\n[INFO] Determinando lista de episodios...")
         try:
-            urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin)
+            urls_episodios = await provider.get_episode_list(url_base, ep_inicio, ep_fin, browser)
             
             # Si el provider devolvió una lista razonable (scrapeó la página), usarla tal cual
             if ep_fin == 9999 and len(urls_episodios) < 9000:
@@ -121,9 +144,9 @@ async def run_scraper():
                         if tarea['serie'] in estado["series_canceladas"]:
                             continue
                             
-                        print(f"[{worker_id}] Tarea obtenida: {tarea['ep']} - URL: {tarea['url']}")
-                        print(f"[{worker_id}] Iniciando descarga: CAPÍTULO {tarea['ep']} ({tarea['serie']}) - {tarea['url']}")
-                        logging.info(f"\n▶ --- INICIANDO DESCARGA: CAPÍTULO {tarea['ep']} ({tarea['serie']}) ---")
+                        # Solo mostrar inicio de descarga si es el primer worker (para evitar spam)
+                        if worker_id == 0:
+                            print(f"▶ DESCARGANDO: CAPÍTULO {tarea['ep']} - {tarea['serie']}")
                         
                         resultado, t_enlaces, t_descarga, b_descargados = await procesar_episodio(
                             browser, 
@@ -136,31 +159,9 @@ async def run_scraper():
                             sem_nav
                         )
     
-                        if not resultado:
-                            estado["descargas"]["fallos"].add(tarea['ep'])
-                            
-                            # Lógica de 3 fallos consecutivos para series dinámicas
-                            if tarea.get('fin_dinamico') and str(tarea['ep']).isdigit():
-                                fallos_ints = {int(x) for x in estado["descargas"]["fallos"] if str(x).isdigit()}
-                                ep_int = int(tarea['ep'])
-                                
-                                if (ep_int - 2 in fallos_ints and ep_int - 1 in fallos_ints and ep_int in fallos_ints) or \
-                                   (ep_int - 1 in fallos_ints and ep_int in fallos_ints and ep_int + 1 in fallos_ints) or \
-                                   (ep_int in fallos_ints and ep_int + 1 in fallos_ints and ep_int + 2 in fallos_ints):
-                                    logging.info(f"🛑 [Cap {ep_int}] 3 fallos consecutivos detectados. Finalizando búsqueda para la serie.")
-                                    estado["series_canceladas"].add(tarea['serie'])
-                                    
-                                    # Vaciar la cola para evitar que workers procesen más caps
-                                    while not cola_tareas.empty():
-                                        try:
-                                            cola_tareas.get_nowait()
-                                            cola_tareas.task_done()
-                                        except asyncio.QueueEmpty:
-                                            break
-                                else:
-                                    logging.info(f"⚠️ [Cap {ep_int}] Falló pero no se aborta la serie aún (regla de 3 fallos).")
-                            
-                        else:
+                        # Mostrar resultado de descarga
+                        if resultado:
+                            print(f"✅ [Cap {tarea['ep']}] Descargado")
                             estado["total_bytes"] += b_descargados
                             estado["total_tiempo_enlaces"] += t_enlaces
                             estado["total_tiempo_descargas"] += t_descarga
@@ -171,6 +172,9 @@ async def run_scraper():
                                 ep_int = int(tarea['ep'])
                                 if ep_int > estado["ultimo_ep_exitoso"]:
                                     estado["ultimo_ep_exitoso"] = ep_int
+                        else:
+                            print(f"❌ [Cap {tarea['ep']}] Falló")
+                            estado["descargas"]["fallos"].add(tarea['ep'])
                     finally:
                         cola_tareas.task_done()
     
@@ -206,14 +210,11 @@ async def run_scraper():
         tiempo_total_app = time.time() - estado["tiempo_inicio"]
         megas_totales = estado["total_bytes"] / (1024 * 1024)
         
-        logging.info("\n🎉 --- PROCESO COMPLETADO --- 🎉")
         print("\n" + "="*50)
         print("📊 ESTADÍSTICAS FINALES 📊")
         print("="*50)
-        print(f"⏱️ Tiempo total de ejecución : {tiempo_total_app:.2f} segundos")
-        print(f"⏱️ Tiempo extracción enlaces : {estado['total_tiempo_enlaces']:.2f} segundos")
-        print(f"⏱️ Tiempo de descarga videos : {estado['total_tiempo_descargas']:.2f} segundos")
-        print(f"💾 Datos totales descargados : {megas_totales:.2f} MB")
+        print(f"⏱️ Tiempo total: {tiempo_total_app:.2f} seg")
+        print(f"💾 Descargado: {megas_totales:.2f} MB")
         print("="*50 + "\n")
         
         exitos = sorted([int(x) if str(x).isdigit() else x for x in estado["descargas"]["exitos"]], key=lambda x: (isinstance(x, str), x))
@@ -236,8 +237,13 @@ async def run_scraper():
                 print("[✔️] Todos los capítulos solicitados fueron descargados.")
         else:
             print("[⚠️] No se procesó ninguna descarga.")
-
-        await browser.close()
+    
+    # Cerrar navegador al terminar todas las series
+    if browser:
+        try:
+            await browser.close()
+        except Exception as e:
+            logging.debug(f"Navegador ya cerrado o error: {e}")
 
 if __name__ == "__main__":
     try:

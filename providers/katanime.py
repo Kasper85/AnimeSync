@@ -75,6 +75,7 @@ class KatanimeProvider(BaseAnimeProvider):
         return urls
 
     async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
+        """Obtiene el enlace de video usando priority_servers para priorizar."""
         try:
             logging.info(f"[{self.name} Trace] Empezando con {episode_url}")
             
@@ -99,66 +100,91 @@ class KatanimeProvider(BaseAnimeProvider):
                  logging.info(f"[{self.name} Trace] Botón de descarga no apareció (posible fin de serie).")
                  return None
             
-            # Selector hiper-estricto para evadir botones fantasma o de otros servidores como Mega
-            selector_mediafire = 'a.downbtn:has-text("Mediafire")'
+            # Mapeo de servidores a selectores
+            server_selectors = {
+                "Mediafire": 'a.downbtn:has-text("Mediafire")',
+                "Mega": 'a.downbtn:has-text("Mega")',
+            }
             
-            # Intentar encontrar Mediafire primero
-            intentar_mediafire = True
-            for _ in range(3):
-                await boton_descarga.click(force=True)
-                try:
-                    await page.wait_for_selector(selector_mediafire, timeout=3000)
-                    break
-                except Exception as e:
-                    logging.debug(f"Intento {_+1} fallido por: {e}")
+            # Recopilar todos los servidores disponibles
+            opciones_disponibles = []
+            for server_name in self.priority_servers:
+                if server_name in server_selectors:
+                    selector = server_selectors[server_name]
+                    # Intentar hacer clic y buscar el servidor
+                    for _ in range(3):
+                        try:
+                            await boton_descarga.click(force=True)
+                            await page.wait_for_selector(selector, timeout=3000)
+                            # Verificar que el elemento es visible
+                            if await page.locator(selector).first.is_visible():
+                                opciones_disponibles.append(server_name)
+                                logging.debug(f"[{self.name}] Encontrado servidor: {server_name}")
+                                break
+                        except Exception:
+                            pass
             
-            enlace_espera = None
-            try:
-                await page.wait_for_selector(selector_mediafire, timeout=5000)
-                enlace_espera = await page.locator(selector_mediafire).first.get_attribute('href')
-            except Exception:
-                intentar_mediafire = False
-                logging.info(f"[{self.name} Trace] No se encontró Mediafire, buscando Mega...")
-                
-            if intentar_mediafire and enlace_espera:
-                logging.info(f"[{self.name} Trace] Navegando a página de espera (Mediafire)...")
-                await page.goto(enlace_espera)
-                
-                selector_linkbutton = '#linkButton'
-                try:
-                    # Tolerancia radical a la carga de Cloudflare del modal 
-                    await page.wait_for_selector(selector_linkbutton, state="attached", timeout=45000)
-                    await page.wait_for_function('document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mediafire.com")', timeout=45000)
-                except Exception:
-                    logging.warning("Timeout esperando #linkButton para Mediafire en Katanime.")
-                    return None
-                
-                enlace_mediafire = await page.locator(selector_linkbutton).get_attribute('href')
-                if enlace_mediafire:
-                    return {"url": enlace_mediafire.strip(), "server": "mediafire"}
+            if not opciones_disponibles:
+                logging.warning(f"[{self.name}] No se encontraron servidores disponibles en {episode_url}")
+                return None
             
-            # --- Plan B: MEGA ---
-            selector_mega = 'a.downbtn:has-text("Mega")'
-            try:
-                await page.wait_for_selector(selector_mega, timeout=5000)
-                enlace_mega_espera = await page.locator(selector_mega).first.get_attribute('href')
-                
-                if enlace_mega_espera:
-                    logging.info(f"[{self.name} Trace] Navegando a página de espera (Mega)...")
-                    await page.goto(enlace_mega_espera)
-                    
-                    selector_linkbutton_mega = '#linkButton'
-                    await page.wait_for_selector(selector_linkbutton_mega, state="attached", timeout=45000)
-                    await page.wait_for_function('document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mega.nz")', timeout=45000)
-                    
-                    enlace_final_mega = await page.locator(selector_linkbutton_mega).get_attribute('href')
-                    if enlace_final_mega:
-                         return {"url": enlace_final_mega.strip(), "server": "mega"}
-            except Exception:
-                logging.warning("Timeout o error esperando botón de Mega en Katanime.")
-                
-            return None
-
+            # Priorizar según priority_servers del provider
+            for servidor_ideal in self.priority_servers:
+                if servidor_ideal in opciones_disponibles:
+                    return await self._get_link_for_server(page, servidor_ideal, boton_descarga)
+            
+            # Fallback: usar el primer servidor disponible
+            return await self._get_link_for_server(page, opciones_disponibles[0], boton_descarga)
+            
         except Exception as e:
             logging.warning(f"Error procesando katanime.net para {episode_url}: {e}")
             return None
+    
+    async def _get_link_for_server(self, page, server_name: str, boton_descarga):
+        """Obtiene el enlace final para un servidor específico."""
+        selector = 'a.downbtn:has-text("' + server_name + '")'
+        
+        try:
+            # Click para revelar el botón del servidor
+            for _ in range(3):
+                try:
+                    await boton_descarga.click(force=True)
+                    await page.wait_for_selector(selector, timeout=3000)
+                    if await page.locator(selector).first.is_visible():
+                        break
+                except Exception:
+                    pass
+            
+            enlace_espera = await page.locator(selector).first.get_attribute('href')
+            if not enlace_espera:
+                logging.warning(f"[{self.name}] No se pudo obtener enlace para {server_name}")
+                return None
+            
+            logging.info(f"[{self.name} Trace] Navegando a página de espera ({server_name})...")
+            await page.goto(enlace_espera)
+            
+            # Obtener enlace final (página intermedia tiene #linkButton)
+            selector_linkbutton = '#linkButton'
+            await page.wait_for_selector(selector_linkbutton, state="attached", timeout=45000)
+            
+            # Verificar que el enlace corresponde al servidor esperado
+            if server_name == "Mediafire":
+                await page.wait_for_function(
+                    'document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mediafire.com")', 
+                    timeout=45000
+                )
+            elif server_name == "Mega":
+                await page.wait_for_function(
+                    'document.querySelector("#linkButton") && document.querySelector("#linkButton").href.includes("mega.nz")', 
+                    timeout=45000
+                )
+            
+            enlace_final = await page.locator(selector_linkbutton).get_attribute('href')
+            if enlace_final:
+                logging.info(f"[{self.name}] Seleccionado {server_name} (prioridad configurada)")
+                return {"url": enlace_final.strip(), "server": server_name.lower()}
+            
+        except Exception as e:
+            logging.warning(f"Timeout o error esperando botón de {server_name} en Katanime: {e}")
+        
+        return None

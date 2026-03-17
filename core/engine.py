@@ -8,6 +8,7 @@ from .mediafire_resolver import obtener_link_mp4_mediafire
 from .yourupload_resolver import obtener_link_mp4_yourupload
 from .mega_downloader import descargar_video_mega
 from .upnshare_resolver import obtener_link_mp4_upnshare
+from .pixeldrain_resolver import obtener_link_mp4_pixeldrain
 from .downloader import descargar_video
 from .browser_manager import crear_pagina_stealth, obtener_ip_para_dominio, marcar_ip_bloqueada
 from providers.base import BaseAnimeProvider
@@ -20,9 +21,16 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
     # Evasión de redescargas
     if os.path.exists(ruta_completa):
         peso_mb = os.path.getsize(ruta_completa) / (1024 * 1024)
-        if peso_mb > TAMANIO_MINIMO_VIDEO_MB:
+        if peso_mb >= TAMANIO_MINIMO_VIDEO_MB:
             logging.info(f"[SKIP] [Cap {ep}] Ya existe ({peso_mb:.1f} MB).")
             return True, 0, 0, 0
+        else:
+            # Archivo parcial detectado - eliminar y reintentar descarga
+            logging.warning(f"[Cap {ep}] Archivo parcial detectado ({peso_mb:.1f} MB < {TAMANIO_MINIMO_VIDEO_MB} MB). Eliminando y reintentando...")
+            try:
+                os.remove(ruta_completa)
+            except Exception as e:
+                logging.warning(f"[Cap {ep}] No se pudo eliminar archivo parcial: {e}")
 
     # Semáforo global estático exclusivo para descargas Mega, 1 a la vez para evitar EBLOCKED
     if not hasattr(procesar_episodio, "mega_semaforo"):
@@ -79,6 +87,15 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                                     }
                                     
                                     resultados_extraidos.append({"tipo": "http", "url": _link_mp4, "headers": upnshare_dynamic_headers, "server": server})
+                            elif server == "pixeldrain":
+                                _link_mp4 = await obtener_link_mp4_pixeldrain(url, session)
+                                if _link_mp4:
+                                    resultados_extraidos.append({
+                                        "tipo": "http", 
+                                        "url": _link_mp4, 
+                                        "headers": {"Referer": "https://pixeldrain.com/"},
+                                        "server": server
+                                    })
                         except Exception as parse_e:
                             logging.warning(f"[Engine] Falló servidor secundario {server}: {parse_e}")
                             pass
@@ -176,7 +193,8 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                     return ex_h, b_h
                 try:
                     exito, bytes_descargados = await intentar_descarga_http()
-                except Exception:
+                except Exception as e:
+                    logging.error(f"[Cap {ep}] Falló descarga HTTP para {nombre_archivo}: {e}")
                     exito, bytes_descargados = False, 0
     
             elif datos_descarga["tipo"] == "mega":
@@ -190,7 +208,8 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                     return res, 0
                 try:
                     exito, bytes_descargados = await intentar_descarga_mega()
-                except Exception:
+                except Exception as e:
+                    logging.error(f"[Cap {ep}] Falló descarga Mega para {nombre_archivo}: {e}")
                     exito, bytes_descargados = False, 0
 
             if exito:
