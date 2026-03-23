@@ -2,6 +2,7 @@ import platform
 import os
 import logging
 import random
+import time
 from playwright_stealth import Stealth
 from utils.network import resolver_ip_dominio, obtener_todas_ips, obtener_ip_fallback
 
@@ -12,9 +13,15 @@ _stealth = Stealth()
 _ips_utilizadas = {}
 _ips_bloqueadas = set()
 
+# Almacena timestamp de cuando se bloqueó cada IP para cleanup automático
+_ips_bloqueadas_tiempo = {}
+
 # Límites para evitar memory leaks y acumulación infinita de IPs
 _MAX_IPS_POR_DOMINIO = 10
 _MAX_IPS_BLOQUEADAS = 20
+
+# Tiempo en segundos antes de desbloquear IPs automáticamente (5 minutos)
+_TIEMPO_DESBLOQUEO = 300
 
 # Límite seguro para episodios en modo dinámico cuando falla el scraping
 # Aumentado de 13 a 50 para series más largas (típico anime tiene 12-25 caps por temporada, algunas llegan a 50+)
@@ -84,7 +91,11 @@ async def crear_navegador(playwright_context, dominio_ip: str, ip_excluir: str =
 def obtener_ip_para_dominio(dominio: str, ip_excluir: str = None) -> str:
     """
     Obtiene una IP válida para el dominio, evitando las bloqueadas y las ya utilizadas.
+    Intenta desbloquear IPs expiradas si es necesario.
     """
+    # Limpiar bloqueos expirados periódicamente
+    limpiar_bloqueos_expirados()
+    
     # Inicializar lista de IPs utilizadas para este dominio
     if dominio not in _ips_utilizadas:
         _ips_utilizadas[dominio] = []
@@ -103,6 +114,13 @@ def obtener_ip_para_dominio(dominio: str, ip_excluir: str = None) -> str:
         ip_elegida = random.choice(ips_validas)
         _ips_utilizadas[dominio].append(ip_elegida)
         return ip_elegida
+    
+    # Si la IP excluida está bloqueada, intentar desbloquearla
+    if ip_excluir and ip_excluir in _ips_bloqueadas:
+        if intentar_desbloquear_ip(ip_excluir):
+            logging.info(f"IP {ip_excluir} desbloqueada para reintento")
+            _ips_utilizadas[dominio].append(ip_excluir)
+            return ip_excluir
     
     # Si no hay IPs del DNS disponibles, intentar con el pool de fallback
     ip_fallback = obtener_ip_fallback(dominio)
@@ -127,8 +145,11 @@ def obtener_ip_para_dominio(dominio: str, ip_excluir: str = None) -> str:
     return "127.0.0.1"
 
 def marcar_ip_bloqueada(ip: str, dominio: str):
-    """Marca una IP como bloqueada para no volver a usarla."""
-    global _ips_bloqueadas
+    """
+    Marca una IP como bloqueada para no volver a usarla.
+    Registra el timestamp para permitir desbloqueo automático.
+    """
+    global _ips_bloqueadas, _ips_bloqueadas_tiempo
     
     # Limpiar IPs antiguas si excede el límite (mantener las más recientes)
     if len(_ips_bloqueadas) > _MAX_IPS_BLOQUEADAS:
@@ -136,9 +157,48 @@ def marcar_ip_bloqueada(ip: str, dominio: str):
         ips_list = list(_ips_bloqueadas)
         ips_list = ips_list[-_MAX_IPS_BLOQUEADAS:]
         _ips_bloqueadas = set(ips_list)
+        # También limpiar timestamps correspondientes
+        for ip_to_remove in list(_ips_bloqueadas_tiempo.keys()):
+            if ip_to_remove not in _ips_bloqueadas:
+                del _ips_bloqueadas_tiempo[ip_to_remove]
     
     _ips_bloqueadas.add(ip)
+    _ips_bloqueadas_tiempo[ip] = time.time()
     logging.warning(f"IP {ip} marcada como bloqueada para {dominio}")
+
+
+def intentar_desbloquear_ip(ip: str) -> bool:
+    """
+    Intenta desbloquear una IP si ha pasado suficiente tiempo desde el bloqueo.
+    Retorna True si se desbloqueó, False si aún no es tiempo.
+    """
+    global _ips_bloqueadas, _ips_bloqueadas_tiempo
+    
+    if ip in _ips_bloqueadas_tiempo:
+        tiempo_bloqueado = time.time() - _ips_bloqueadas_tiempo[ip]
+        if tiempo_bloqueado >= _TIEMPO_DESBLOQUEO:
+            _ips_bloqueadas.discard(ip)
+            del _ips_bloqueadas_tiempo[ip]
+            logging.info(f"IP {ip} desbloqueada automáticamente después de {tiempo_bloqueado:.1f}s")
+            return True
+    return False
+
+
+def limpiar_bloqueos_expirados():
+    """
+    Limpia todos los bloqueos expirados. Debe llamarse periódicamente.
+    """
+    global _ips_bloqueadas, _ips_bloqueadas_tiempo
+    
+    ips_a_desbloquear = []
+    for ip, timestamp in _ips_bloqueadas_tiempo.items():
+        if time.time() - timestamp >= _TIEMPO_DESBLOQUEO:
+            ips_a_desbloquear.append(ip)
+    
+    for ip in ips_a_desbloquear:
+        _ips_bloqueadas.discard(ip)
+        del _ips_bloqueadas_tiempo[ip]
+        logging.info(f"IP {ip} desbloqueada por cleanup automático")
 
 async def crear_pagina_stealth(browser) -> tuple:
     """

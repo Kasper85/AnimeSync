@@ -7,7 +7,11 @@ import random
 # Se usarán como fallback cuando la resolución DNS falle o dé problemas
 # Nota: Estas IPs fueron verificadas en marzo 2026. Revisar periódicamente.
 IP_POOL = {
-    "jkanime.net": ["104.26.10.188", "104.26.11.188", "172.64.146.117", "172.64.155.117"],
+    "jkanime.net": [
+        "104.26.10.188", "104.26.11.188", "104.26.12.188",
+        "172.64.146.117", "172.64.155.117", "172.64.156.117",
+        "172.67.70.150", "172.67.71.150", "172.67.72.150"
+    ],
     "animeflv.net": ["104.21.47.100", "172.64.144.100"],
     "latanime.org": ["104.21.74.227", "172.67.164.15"],
 }

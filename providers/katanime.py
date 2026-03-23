@@ -62,17 +62,181 @@ class KatanimeProvider(BaseAnimeProvider):
                 if cifra_max > 0:
                     end_ep = min(end_ep, cifra_max)
                     logging.info(f"[{self.name}] Detectados {cifra_max} episodios scrapeando la página.")
+                    # Generar URLs directamente sin verificación adicional
+                    urls = []
+                    for ep in range(start_ep, end_ep + 1):
+                        urls.append(f"{self.base_url}/capitulo/{nombre_serie}-{ep}/")
+                    return urls
                 else:
                     logging.warning(f"[{self.name}] No se encontraron episodios. Usando modo dinámico.")
             except Exception as e:
                 logging.warning(f"[{self.name}] Falló scraping de la serie: {e}")
-                # Limitar a un número razonable de episodios para modo dinámico
-                end_ep = _DINAMICO_EPISODIOS_LIMITE  # Límite seguro para evitar miles de URLs inválidas
+                # Intentar modo de sondeo adaptativo
+                if browser:
+                    try:
+                        urls_sondeo = await self._probar_episodios_dinamico(browser, nombre_serie, start_ep)
+                        if urls_sondeo:
+                            logging.info(f"[{self.name}] Sondeo adaptativo encontró {len(urls_sondeo)} episodios.")
+                            return urls_sondeo
+                    except Exception as probe_error:
+                        logging.warning(f"[{self.name}] Falló sondeo adaptativo: {probe_error}")
+                
+                # Fallback final: usar límite reducido para evitar sobrecarga
+                end_ep = min(_DINAMICO_EPISODIOS_LIMITE, 30)
         
+        # Verificar cada URL antes de agregarla (para evitar 404)
         urls = []
         for ep in range(start_ep, end_ep + 1):
-            urls.append(f"{self.base_url}/capitulo/{nombre_serie}-{ep}/")
+            url = f"{self.base_url}/capitulo/{nombre_serie}-{ep}/"
+            # Probar si la URL existe antes de agregarla
+            if await self._verificar_episodio_existe(url, browser):
+                urls.append(url)
+            else:
+                logging.debug(f"[{self.name}] Episodio {ep} no existe (404), deteniendo búsqueda.")
+                break  # Detener si encontramos un episodio que no existe
+        
         return urls
+
+    async def _verificar_episodio_existe(self, url: str, browser) -> bool:
+        """Verifica si un episodio existe (no devuelve 404 y tiene contenido de reproductor)"""
+        import urllib.request
+        from bs4 import BeautifulSoup
+        
+        page = None
+        try:
+            html = None
+            if browser:
+                try:
+                    page = await browser.new_page()
+                    await page.goto(url, timeout=10000)
+                    html = await page.content()
+                except Exception as e:
+                    logging.debug(f"[{self.name}] Error al verificar {url}: {e}")
+                finally:
+                    if page and not page.is_closed():
+                        await page.close()
+            
+            if not html:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                try:
+                    html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+                except:
+                    return False
+            
+            soup = BeautifulSoup(html, 'html.parser')
+            texto_pagina = soup.get_text().lower()
+            
+            # Detectar si la página indica que el episodio no existe
+            no_existe = any(palabra in texto_pagina for palabra in [
+                'no encontrada', 'no encontrado', '404', 'error 404',
+                'no se encontró', 'no existe', 'capitulo no disponible',
+                'episode not found', 'page not found'
+            ])
+            
+            if no_existe:
+                return False
+            
+            # Verificar que tenga contenido de reproductor
+            tiene_player = any(palabra in texto_pagina for palabra in [
+                'reproducir', 'player', 'ver', 'descargar', 'servidor', 'descarga'
+            ])
+            
+            return tiene_player
+            
+        except Exception as e:
+            logging.debug(f"[{self.name}] Excepción al verificar {url}: {e}")
+            return False
+        finally:
+            # Asegurar cierre de página
+            if page and not page.is_closed():
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
+    async def _probar_episodios_dinamico(self, browser, nombre_serie: str, start_ep: int = 1) -> List[str]:
+        """
+        Método de sondeo adaptativo: prueba episodios secuencialmente hasta encontrar
+        3 episodios consecutivos que no existen.
+        """
+        from bs4 import BeautifulSoup
+        import urllib.request
+        
+        urls_encontradas = []
+        max_sondeo = 30  # Reducido de 50 a 30 para evitar sobrecarga
+        fallos_consecutivos = 0
+        
+        logging.info(f"[{self.name}] Iniciando sondeo adaptativo desde episodio {start_ep}...")
+        
+        for ep in range(start_ep, start_ep + max_sondeo):
+            url = f"{self.base_url}/capitulo/{nombre_serie}-{ep}"
+            page = None
+            
+            try:
+                html = None
+                if browser:
+                    try:
+                        page = await browser.new_page()
+                        await page.goto(url, timeout=10000)
+                        html = await page.content()
+                    except Exception as e:
+                        logging.debug(f"[{self.name}] Error en episodio {ep}: {e}")
+                    finally:
+                        if page and not page.is_closed():
+                            try:
+                                await page.close()
+                            except Exception:
+                                pass
+                
+                if not html:
+                    # Fallback a urllib
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    try:
+                        html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+                    except:
+                        pass
+                
+                if html:
+                    soup = BeautifulSoup(html, 'html.parser')
+                    texto_pagina = soup.get_text().lower()
+                    
+                    # Detectar si la página indica que el episodio no existe
+                    no_existe = any(palabra in texto_pagina for palabra in [
+                        'no encontrada', 'no encontrado', '404', 'error 404',
+                        'no se encontró', 'no existe', 'capitulo no disponible',
+                        'episode not found', 'page not found'
+                    ])
+                    
+                    if not no_existe:
+                        # Verificar que tenga contenido de reproductor
+                        tiene_player = any(palabra in texto_pagina for palabra in [
+                            'reproducir', 'player', 'ver', 'descargar', 'servidor', 'descarga'
+                        ])
+                        
+                        if tiene_player:
+                            urls_encontradas.append(url)
+                            logging.debug(f"[{self.name}] Episodio {ep} encontrado: {url}")
+                            fallos_consecutivos = 0
+                        else:
+                            # Página existe pero no tiene reproductor - posible fin
+                            fallos_consecutivos += 1
+                    else:
+                        fallos_consecutivos += 1
+                else:
+                    fallos_consecutivos += 1
+                
+                # Si 3 episodios consecutivos no existen, detener
+                if fallos_consecutivos >= 3:
+                    logging.info(f"[{self.name}] Detectados 3 episodios consecutivos sin contenido. Serie finalizada en episodio {ep - 2}")
+                    break
+                
+            except Exception as e:
+                logging.debug(f"[{self.name}] Excepción probando episodio {ep}: {e}")
+                fallos_consecutivos += 1
+                if fallos_consecutivos >= 3:
+                    break
+        
+        return urls_encontradas
 
     async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
         """Obtiene el enlace de video usando priority_servers para priorizar."""

@@ -37,13 +37,26 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         procesar_episodio.mega_semaforo = asyncio.Semaphore(1)
 
     context = None
+    page = None
     try:
         # Escalonar con semaforo para no lanzar procesos anónimos al mismo milisegundo
         async with sem:
-            context, page = await crear_pagina_stealth(browser)
-
-            async def cerrar_popup(popup): await popup.close()
-            page.on('popup', cerrar_popup)
+            try:
+                context, page = await crear_pagina_stealth(browser)
+            except Exception as browser_error:
+                # Detectar si el navegador se cerró o crashed
+                error_msg = str(browser_error).lower()
+                if "browser has been closed" in error_msg or "context has been closed" in error_msg or "target page" in error_msg:
+                    logging.warning(f"[Cap {ep}] Navegador cerrado/crasheado. Marcando para reintento...")
+                    # Re-lanzar para que sea manejado como error crítico
+                    raise
+                else:
+                    # Otras excepciones también se relanzan
+                    raise
+            
+            if page:
+                async def cerrar_popup(popup): await popup.close()
+                page.on('popup', cerrar_popup)
 
             @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=5))
             async def intentar_obtener_links():
@@ -123,8 +136,8 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
             dominio = urlparse(url_episodio).netloc
             
             # Intentar obtener enlaces con reintento si falla
-            # Nota: El cambio real de IP requiere recrear el navegador (browser_manager)
-            # Aquí marcaremos el dominio como problemático para siguientes episodios
+            # Ahora el cambio de IP funciona: browser_manager intenta desbloquear IPs expiradas
+            # y proporciona IPs alternativas. También usamos backoff entre intentos.
             intentos = 0
             max_intentos = 2
             datos_descarga_lista = None
@@ -141,7 +154,6 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                  
                  if not datos_descarga_lista:
                      # Obtener una IP alternativa para el siguiente intento
-                     # (Nota: el cambio real de IP requiere recrear el navegador)
                      ip_to_exclude_next_attempt = obtener_ip_para_dominio(dominio, ip_excluir)
                      
                      intentos += 1
@@ -151,10 +163,30 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
                          else:
                              logging.debug(f"[Cap {ep}] Sin enlaces. Reintento {intentos + 1}/{max_intentos}...")
                          
-                         # Simplemente recargar la página en lugar de cerrar/recrear contexto
-                         # Esto evita condiciones de carrera cuando múltiples workers retryan
-                         await page.goto("about:blank")
-                         await asyncio.sleep(1)
+                         # Cerrar página y contexto actuales para obtener una "página fresca"
+                         # Esto ayuda a evitar problemas de caching y estado
+                         try:
+                             await page.close()
+                         except:
+                             pass
+                         try:
+                             await context.close()
+                         except:
+                             pass
+                         
+                         # Crear nuevo contexto y página con nueva IP
+                         try:
+                             context, page = await crear_pagina_stealth(browser)
+                             if page:
+                                 async def cerrar_popup(popup): await popup.close()
+                                 page.on('popup', cerrar_popup)
+                         except Exception as recreate_error:
+                             logging.warning(f"[Cap {ep}] Error al recrear página: {recreate_error}")
+                         
+                         # Espera con backoff exponencial para no saturar el servidor
+                         # Cada vez esperamos más tiempo entre intentos
+                         espera = 2 ** intentos  # 2s, 4s, 8s...
+                         await asyncio.sleep(espera)
                      
                      # Actualizar ip_excluir para el próximo ciclo
                      ip_excluir = ip_to_exclude_next_attempt
