@@ -244,8 +244,8 @@ class LatAnimeProvider(BaseAnimeProvider):
         
         return urls_encontradas
 
-    async def obtener_enlace_video(self, page, episode_url: str) -> Optional[dict]:
-        """Obtiene el enlace de video usando priority_servers para priorizar."""
+    async def obtener_enlace_video(self, page, episode_url: str) -> Optional[list]:
+        """Obtiene la lista de enlaces de video usando priority_servers para ordenar."""
         await page.goto(episode_url)
         
         # Mapeo de servidores a selectores
@@ -253,6 +253,8 @@ class LatAnimeProvider(BaseAnimeProvider):
             "Mediafire": 'a.direct-link[href*="mediafire.com"]',
             "Mega": 'a.direct-link[href*="mega.nz"]',
             "PixelDrain": 'a.direct-link[href*="pixeldrain.com"]',
+            "YourUpload": 'a.direct-link[href*="yourupload.com"]',
+            "UpnShare": 'a.direct-link[href*="upnstream.com"]',
         }
         
         # Recopilar todos los servidores disponibles
@@ -271,13 +273,16 @@ class LatAnimeProvider(BaseAnimeProvider):
             logging.warning(f"[{self.name}] No se encontraron servidores disponibles en {episode_url}")
             return None
         
+        resultados = []
+        
         # Priorizar según priority_servers del provider
         for servidor_ideal in self.priority_servers:
             if servidor_ideal in opciones_descarga:
-                logging.info(f"[{self.name}] Seleccionado {servidor_ideal} (prioridad configurada)")
-                return {"url": opciones_descarga[servidor_ideal], "server": servidor_ideal.lower()}
+                resultados.append({"url": opciones_descarga[servidor_ideal], "server": servidor_ideal.lower()})
+                del opciones_descarga[servidor_ideal]
         
-        # Fallback: devolver el primer servidor disponible
-        servidor_fallback = list(opciones_descarga.keys())[0]
-        logging.warning(f"[{self.name}] Usando fallback: {servidor_fallback}")
-        return {"url": opciones_descarga[servidor_fallback], "server": servidor_fallback.lower()}
+        # Agregar los restantes que no estaban en priority_servers (si los hay)
+        for nombre_servidor, enlace in opciones_descarga.items():
+            resultados.append({"url": enlace, "server": nombre_servidor.lower()})
+            
+        return resultados
