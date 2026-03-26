@@ -43,5 +43,19 @@ venv.bak/
 # Project specific
 spec_tech.md
 # Aquí puedes agregar las carpetas donde se guardan los animes descargados si no quieres subirlas
-# Por ejemplo, si los animes se descargan en la misma carpeta del script:
-*/*.mp4
+# Archivos multimedia descargados
+*.mp4
+*.mkv
+*.avi
+*.thumb.jpg
+
+# Archivos de depuración de página y logs de error
+error_*.png
+
+# Credenciales y Configuración
+.env
+**/.env
+
+# Telethon (sesiones de login de telegram)
+*.session
+*.session-journal
