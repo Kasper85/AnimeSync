@@ -13,6 +13,7 @@ from .downloader import descargar_video
 from .browser_manager import crear_pagina_stealth, obtener_ip_para_dominio, marcar_ip_bloqueada
 from providers.base import BaseAnimeProvider
 from config import TAMANIO_MINIMO_VIDEO_MB
+from rich import print
 
 async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, destino: str, provider: BaseAnimeProvider, session: object, sem: asyncio.Semaphore) -> tuple:
     nombre_archivo = f"{serie}_Cap_{ep}.mp4"
@@ -254,7 +255,7 @@ async def procesar_episodio(browser, url_episodio: str, ep: str, serie: str, des
         if exito:
             # Mostrar mensaje limpio con timestamp
             timestamp = time.strftime("%H:%M:%S")
-            print(f"[{timestamp}] {ep} - Descargado")
+            print(f"[bold green]\\[{timestamp}\\] {ep} - Descargado[/bold green]")
 
         return exito, tiempo_enlace, tiempo_descarga, bytes_descargados
 
