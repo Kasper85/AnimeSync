@@ -47,13 +47,22 @@ class UploadResult:
 def get_video_metadata(file_path):
     """Extrae atributos de video y genera un thumbnail usando cv2."""
     file_path_str = str(file_path)
-    if not cv2 or not file_path_str.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
+    if not file_path_str.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
         return None, None
+        
+    # Fallback to prevent videos from being uploaded as generic files
+    default_attr = [
+        DocumentAttributeVideo(duration=0, w=0, h=0, supports_streaming=True),
+        DocumentAttributeFilename(file_name=os.path.basename(file_path_str))
+    ]
+
+    if not cv2:
+        return default_attr, None
         
     try:
         cap = cv2.VideoCapture(file_path_str)
         if not cap.isOpened():
-            return None, None
+            return default_attr, None
             
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -87,7 +96,7 @@ def get_video_metadata(file_path):
         
     except Exception as e:
         logger.warning(f"No se pudo extraer metadata del video {file_path}: {e}")
-        return None, None
+        return default_attr, None
 
 
 async def upload_single_file(

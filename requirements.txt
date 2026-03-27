@@ -12,3 +12,4 @@ tqdm
 telethon
 cryptg
 python-dotenv
+opencv-python-headless
