@@ -52,7 +52,7 @@ async def interactive_menu():
             Prompt.ask("\n[bold]Presiona ENTER para volver al menú[/bold]")
 
 async def run_scraper():
-    carpetas_procesadas = []
+    carpetas_completas = []
     
     # Solicitar URL(s) - soporta múltiples URLs separadas por coma o nueva línea
     url_input = Prompt.ask("\nIngresa la(s) URL(s) de la serie (Ej. jkanime.net/naruto)").strip()
@@ -147,8 +147,6 @@ async def run_scraper():
                 
             ruta_destino = os.path.join(os.getcwd(), nombre_serie)
             os.makedirs(ruta_destino, exist_ok=True)
-            if ruta_destino not in carpetas_procesadas:
-                carpetas_procesadas.append(ruta_destino)
             
             if es_dinamico:
                 console.print(f"\n[cyan][PREPARE] Buscando dinámicamente episodios desde el cap {ep_inicio} en adelante...[/cyan]")
@@ -274,7 +272,10 @@ async def run_scraper():
             
             if fallos:
                 console.print(f"[bold red][❌] Faltan los capítulos: {', '.join(map(str, fallos))}[/bold red]")
+                console.print("[yellow][⚠️] La serie no se subirá a Telegram porque tiene capítulos fallidos o faltantes.[/yellow]")
             elif exitos:
+                if ruta_destino not in carpetas_completas:
+                    carpetas_completas.append(ruta_destino)
                 if all(isinstance(x, int) for x in exitos) and exitos == list(range(min(exitos), max(exitos) + 1)):
                     rango_str = f"({min(exitos)}-{max(exitos)})" if len(exitos) > 1 else f"({exitos[0]})"
                     console.print(f"[bold green][✔️] Todos los capítulos descargados {rango_str}.[/bold green]")
@@ -301,7 +302,7 @@ async def run_scraper():
             border_style="magenta"
         ))
     
-    return carpetas_procesadas
+    return carpetas_completas
 
 if __name__ == "__main__":
     try:
