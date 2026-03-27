@@ -14,7 +14,10 @@ from telethon.errors import (
     SessionPasswordNeededError,
 )
 
-from config import Config
+if __package__ is None or __package__ == '':
+    from config import Config
+else:
+    from .config import Config
 
 
 # Logger para este módulo

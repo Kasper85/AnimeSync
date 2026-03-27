@@ -72,18 +72,32 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 # Módulos propios
-from config import Config, load_config
-from auth import create_client, ensure_session, disconnect_client, is_valid_session_file
-from files import (
-    get_files_in_directory,
-    print_files_summary,
-    parse_extensions,
-    select_sort_option,
-    get_max_files_input,
-    validate_directory,
-    FileInfo,
-)
-from uploader import get_channel_entity, upload_files, UploadStats
+if __package__ is None or __package__ == '':
+    from config import Config, load_config
+    from auth import create_client, ensure_session, disconnect_client, is_valid_session_file
+    from files import (
+        get_files_in_directory,
+        print_files_summary,
+        parse_extensions,
+        select_sort_option,
+        get_max_files_input,
+        validate_directory,
+        FileInfo,
+    )
+    from uploader import get_channel_entity, upload_files, UploadStats
+else:
+    from .config import Config, load_config
+    from .auth import create_client, ensure_session, disconnect_client, is_valid_session_file
+    from .files import (
+        get_files_in_directory,
+        print_files_summary,
+        parse_extensions,
+        select_sort_option,
+        get_max_files_input,
+        validate_directory,
+        FileInfo,
+    )
+    from .uploader import get_channel_entity, upload_files, UploadStats
 
 
 # ============================================================

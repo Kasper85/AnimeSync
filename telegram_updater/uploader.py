@@ -15,9 +15,12 @@ from typing import Optional
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from telethon.tl.types import Message, DocumentAttributeVideo, DocumentAttributeFilename
-from fast_uploader import fast_upload_file
-
-from files import FileInfo
+if __package__ is None or __package__ == '':
+    from fast_uploader import fast_upload_file
+    from files import FileInfo
+else:
+    from .fast_uploader import fast_upload_file
+    from .files import FileInfo
 
 try:
     import cv2
