@@ -66,7 +66,7 @@ Playwright browser binaries are strictly required, as the core occasionally reli
 
 ### Telegram Updater Setup (Optional)
 
-To use the Telegram upload feature, create a `.env` file inside the `telegram_updater/` folder:
+To use the Telegram upload feature, create a `.env` file in the project root:
 
 ```env
 API_ID=12345678
