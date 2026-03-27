@@ -38,8 +38,9 @@ def load_config() -> Config:
     Raises:
         ValueError: Si falta alguna variable requerida o tiene valores inválidos
     """
-    # Cargar variables de entorno
-    load_dotenv()
+    # Cargar variables de entorno desde el .env en la raíz del proyecto
+    env_path = Path(__file__).resolve().parent.parent / '.env'
+    load_dotenv(env_path)
     
     # Obtener valores obligatorios
     api_id = os.getenv('API_ID')
