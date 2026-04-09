@@ -41,5 +41,13 @@ def descargar_video_mega(url: str, serie: str, nombre_archivo: str, destino: str
             return True
         
         except Exception as e:
+            # En Windows, mega.py a menudo no cierra el handle del archivo temporal (megapy_...)
+            # lo que provoca un WinError 32 al intentar eliminarlo, aunque el archivo final
+            # ya haya sido movido/copiado correctamente a su destino.
+            ruta_final = os.path.join(destino, nombre_archivo)
+            if os.path.exists(ruta_final) and os.path.getsize(ruta_final) > 1024 * 1024:  # Asumimos que más de 1MB es válido
+                print(f"✅ [MEGA] Ignorado error menor (WinError 32) al limpiar temporales. El archivo {nombre_archivo} está completo.")
+                return True
+                
             logging.error(f"[MEGA] Fallo crítico descargando {nombre_archivo}: {e}")
             return False

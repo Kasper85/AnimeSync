@@ -240,8 +240,8 @@ class TioAnimeProvider(BaseAnimeProvider):
         opciones_descarga = {}
         for server_name, selector in server_selectors.items():
             try:
-                await page.wait_for_selector(selector, timeout=3000)
-                enlace = await page.locator(selector).get_attribute('href')
+                await page.wait_for_selector(selector, state="attached", timeout=5000)
+                enlace = await page.locator(selector).first.get_attribute('href')
                 if enlace:
                     opciones_descarga[server_name] = enlace.strip()
                     logging.debug(f"[{self.name}] Encontrado {server_name}: {enlace[:50]}...")
