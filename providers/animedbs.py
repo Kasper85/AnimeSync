@@ -14,18 +14,16 @@ class AnimeDbsProvider(BaseAnimeProvider):
 
     @classmethod
     def extract_episode_info(cls, url: str) -> Optional[dict]:
-        """Detecta si la URL es un episodio de AnimeDbs: https://www.animedbs.online/boku-no-hero-...-episodio-10-latino/"""
-        # Debe contener la palabra episodio y el dominio
-        if "episodio-" in url:
-            match = re.search(r'([\w-]+)-episodio-(\d+)', url)
+        """Detecta si la URL es un episodio de AnimeDbs"""
+        if "episodio-" in url or "capitulo-" in url:
+            match = re.search(r'([\w-]+)-(?:episodio|capitulo)-(\d+)', url)
             if match:
                  return {"ep_num": int(match.group(2)), "serie": match.group(1)}
         return None
 
-    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999, session=None) -> List[str]:
+    async def get_episode_list(self, series_url: str, start_ep: int = 1, end_ep: int = 9999, browser=None) -> List[str]:
         urls = []
         try:
-            # Reutilizar la sesión existente si se provee (evita crear dos sesiones HTTP)
             async def _do_fetch(s):
                 async with s.get(series_url) as resp:
                     if resp.status != 200:
@@ -36,11 +34,11 @@ class AnimeDbsProvider(BaseAnimeProvider):
                     episodios_encontrados = set()
                     for a_tag in soup.find_all('a', href=True):
                         href = a_tag['href']
-                        if "episodio-" in href and "animedbs.online" in href:
+                        if ("episodio-" in href or "capitulo-" in href) and "animedbs.online" in href:
                             episodios_encontrados.add(href)
 
                     def extract_ep_num(url):
-                        match = re.search(r'episodio-(\d+)', url)
+                        match = re.search(r'(?:episodio|capitulo)-(\d+)', url)
                         return int(match.group(1)) if match else 0
 
                     lista_ordenada = sorted(list(episodios_encontrados), key=extract_ep_num)
@@ -56,11 +54,9 @@ class AnimeDbsProvider(BaseAnimeProvider):
                         for ep in range(start_ep, end_ep + 1):
                             urls.append(f"{self.base_url}/{slug_base}-episodio-{ep}-latino-hd/")
 
-            if session is not None:
-                await _do_fetch(session)
-            else:
-                async with aiohttp.ClientSession() as s:
-                    await _do_fetch(s)
+            # Usar aiohttp independiente
+            async with aiohttp.ClientSession() as s:
+                await _do_fetch(s)
 
         except Exception as e:
             logging.error(f"Error parseando lista AnimeDbs: {e}")
