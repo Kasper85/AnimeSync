@@ -165,12 +165,10 @@ class JKAnimeProvider(BaseAnimeProvider):
                     tabla_encontrada = True
                     logging.debug(f"[{self.name}] Tabla encontrada después de hacer click en #dwld")
                 except Exception as e2:
-                    logging.warning(f"[{self.name}] No se encontró tabla de descargas ni botón #dwld: {e2}")
-                    return None
+                    raise Exception(f"No se encontró tabla de descargas ni botón #dwld: {e2}")
             
             if not tabla_encontrada:
-                logging.warning(f"[{self.name}] No se pudo encontrar tabla de descargas para {episode_url}")
-                return None
+                raise Exception(f"No se pudo encontrar tabla de descargas para {episode_url}")
             
             # Extraer opciones de descarga de la tabla
             filas = await page.locator('table tbody tr:not(:first-child)').all()
@@ -192,12 +190,11 @@ class JKAnimeProvider(BaseAnimeProvider):
                         continue
                     
             if not opciones_descarga:
-                logging.warning(f"[{self.name}] Tabla encontrada pero sin enlaces válidos en {episode_url}. HTML preview: {(await page.content())[:500]}")
-                return None
+                raise Exception(f"Tabla encontrada pero sin enlaces válidos en {episode_url}")
 
         except Exception as e:
             logging.error(f"[{self.name}] Falló al buscar opciones de descarga: {e}")
-            return None
+            raise e
 
         # Prioridad de servidores
         for servidor_ideal in self.priority_servers:

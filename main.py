@@ -157,7 +157,7 @@ async def run_scraper():
             # (El código antiguo creaba uno nuevo en línea 118, lo cual era incorrecto)
             
             # Objeto de control de concurrencia para evitar saturar protección anti-bot (ej. Katanime a Max 2 por vez)
-            limite_concurrencia = 2 if provider.name == "Katanime" else 10
+            limite_concurrencia = 2 if provider.name in ["Katanime", "JKAnime"] else 10
             sem_nav = asyncio.Semaphore(limite_concurrencia)
             
             connector = aiohttp.TCPConnector(limit=0) # Sin limite de conexiones TCP simultaneas
