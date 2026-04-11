@@ -156,8 +156,9 @@ async def run_scraper():
             # Reutilizar el browser existente en lugar de crear uno nuevo
             # (El código antiguo creaba uno nuevo en línea 118, lo cual era incorrecto)
             
-            # Objeto de control de concurrencia para evitar saturar protección anti-bot (ej. Katanime a Max 2 por vez)
-            limite_concurrencia = 2 if provider.name in ["Katanime", "JKAnime"] else 10
+            # Objeto de control de concurrencia global para evitar saturar las protecciones anti-bot (Cloudflare, etc.)
+            # Afecta solo a la extracción de enlaces. Las descargas reales suceden sin este límite.
+            limite_concurrencia = 2 
             sem_nav = asyncio.Semaphore(limite_concurrencia)
             
             connector = aiohttp.TCPConnector(limit=0) # Sin limite de conexiones TCP simultaneas
